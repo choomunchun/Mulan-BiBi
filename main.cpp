@@ -1,990 +1,652 @@
-// Build: Visual Studio (Win32/x64) — link opengl32.lib
-// Put mulan5.obj beside the EXE, or change kModelPath.
-
-#define NOMINMAX
 #include <Windows.h>
-#include <windowsx.h>  // GET_X_LPARAM, GET_Y_LPARAM, GET_WHEEL_DELTA_WPARAM
+#include <windowsx.h>
 #include <gl/GL.h>
-#pragma comment(lib, "opengl32.lib")
-
-#ifndef GET_X_LPARAM
-#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
-#endif
-#ifndef GET_Y_LPARAM
-#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
-#endif
-#ifndef GET_WHEEL_DELTA_WPARAM
-#define GET_WHEEL_DELTA_WPARAM(wp) ((short)HIWORD(wp))
-#endif
-
-#include <vector>
-#include <string>
-#include <fstream>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
-#include <algorithm>
-#include <cctype>
+#include <gl/GLU.h>
 #include <cmath>
+#include <vector>
+#include <cstdio>
+#include <algorithm> 
 
-// =========================== Config ===========================
-static const char* kWindowTitle = "Mulan OBJ – Camera, Face, Shoes & Walking Legs";
-static const char* kModelPath = "mulan5.obj";           // change if needed
-static const char* kHeadName = "Bip001_Head_011";      // target head group
-// =============================================================
+#pragma comment(lib, "OpenGL32.lib")
+#pragma comment(lib, "Glu32.lib")
 
-// =========================== Types ============================
-struct Vec3 { float x = 0, y = 0, z = 0; };
-struct Tri { int i0 = 0, i1 = 0, i2 = 0; int groupId = -1; };
+#define WINDOW_TITLE "Full Body Model Viewer"
 
-struct Mesh {
-    std::vector<Vec3> vertices;
-    std::vector<Tri>  tris;
-    std::vector<std::string> groupNames; // groupId -> name
-    std::vector<Vec3> normals;           // per-vertex
-    Vec3 bboxMin{ 0,0,0 }, bboxMax{ 0,0,0 }, centroid{ 0,0,0 };
+// ===================================================================
+//
+// SECTION 1: MODEL & GLOBAL STATE
+//
+// ===================================================================
+
+#define PI 3.1415926535f
+
+// --- Global State ---
+int   gWidth = 800;
+int   gHeight = 600;
+
+bool  gRunning = true;
+bool  gShowWireframe = false;
+
+bool  gLMBDown = false;
+POINT gLastMouse = { 0, 0 };
+
+// --- Camera State ---
+struct Vec3 { float x, y, z; };
+Vec3  gTarget = { 0.0f, 3.5f, 0.0f };
+float gDist = 15.0f;
+float gYaw = 0.2f;
+float gPitch = 0.1f;
+
+// --- Input State ---
+bool keyW = false, keyS = false, keyA = false, keyD = false; // For Camera
+bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift = false; // For Character
+
+LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
+
+// --- Proportions Control ---
+#define LEG_SCALE 0.9f
+#define BODY_SCALE 3.5f
+#define ARM_SCALE 0.15f
+#define HAND_SCALE 0.3f  // <-- NEW: Controls hand size relative to the arm
+
+// --- Animation & Character State ---
+Vec3  gCharacterPos = { 0.0f, 0.0f, 0.0f };
+float gCharacterYaw = 0.0f;
+float gWalkPhase = 0.0f;
+float gMoveSpeed = 0.0f;
+const float WALK_SPEED = 3.0f;
+const float RUN_SPEED = 7.0f;
+const float TURN_SPEED = 120.0f;
+
+// --- Data Structures ---
+struct Vec3f { float x, y, z; };
+struct Tri { int a, b, c; };
+struct JointPose { float torsoYaw, torsoPitch, torsoRoll; float headYaw, headPitch, headRoll; } g_pose = { 0,0,0, 0,0,0 };
+struct HandJoint { Vec3 position; int parentIndex; };
+struct ArmJoint { Vec3 position; int parentIndex; };
+
+// --- Leg Data ---
+const Vec3f gFootVertices[] = {
+    {0.25f,0.0f,1.4f},{0.1f,0.0f,1.45f},{0.1f,0.25f,1.45f},{0.25f,0.25f,1.4f},{0.25f,0.0f,1.2f},{0.1f,0.0f,1.2f},{0.1f,0.3f,1.2f},{0.25f,0.3f,1.2f},{0.05f,0.0f,1.4f},{-0.1f,0.0f,1.35f},{-0.1f,0.2f,1.35f},{0.05f,0.2f,1.4f},{0.05f,0.0f,1.15f},{-0.1f,0.0f,1.15f},{-0.1f,0.25f,1.15f},{0.05f,0.25f,1.15f},{-0.15f,0.0f,1.3f},{-0.28f,0.0f,1.25f},{-0.28f,0.18f,1.25f},{-0.15f,0.18f,1.3f},{-0.15f,0.0f,1.1f},{-0.28f,0.0f,1.1f},{-0.28f,0.22f,1.1f},{-0.15f,0.22f,1.1f},{-0.32f,0.0f,1.2f},{-0.42f,0.0f,1.1f},{-0.42f,0.16f,1.1f},{-0.32f,0.16f,1.2f},{-0.32f,0.0f,1.0f},{-0.42f,0.0f,1.0f},{-0.42f,0.2f,1.0f},{-0.32f,0.2f,1.0f},{-0.46f,0.0f,1.0f},{-0.55f,0.0f,0.9f},{-0.55f,0.14f,0.9f},{-0.46f,0.14f,1.0f},{-0.46f,0.0f,0.8f},{-0.55f,0.0f,0.8f},{-0.55f,0.18f,0.8f},{-0.46f,0.18f,0.8f},{0.3f,0.0f,0.8f},{0.3f,0.4f,0.8f},{-0.6f,0.0f,0.6f},{-0.6f,0.3f,0.6f},{0.0f,0.9f,0.2f},{0.5f,0.8f,0.1f},{0.55f,0.9f,-0.5f},{0.0f,0.8f,-0.7f},{-0.55f,0.9f,-0.5f},{-0.5f,0.8f,0.1f},{0.0f,0.0f,0.2f},{0.4f,0.0f,-0.5f},{-0.4f,0.0f,-0.5f},{0.0f,2.0f,-0.1f},{-0.6f,1.9f,-0.3f},{-0.6f,2.2f,-0.9f},{0.0f,2.3f,-1.0f},{0.6f,2.2f,-0.9f},{0.6f,1.9f,-0.3f},{0.0f,3.5f,0.1f},{-0.5f,3.4f,-0.1f},{-0.55f,3.8f,-0.7f},{0.0f,3.9f,-0.8f},{0.55f,3.8f,-0.7f},{0.5f,3.4f,-0.1f},{0.0f,4.5f,0.3f},{-0.45f,4.4f,0.2f},{-0.5f,4.5f,-0.6f},{0.0f,4.4f,-0.7f},{0.5f,4.5f,-0.6f},{0.45f,4.4f,0.2f},{0.0f,6.0f,0.2f},{-0.7f,5.8f,0.0f},{-0.75f,6.2f,-0.5f},{0.0f,6.3f,-0.6f},{0.75f,6.2f,-0.5f},{0.7f,5.8f,0.0f},{0.0f,8.0f,0.1f},{-0.7f,7.9f,-0.1f},{-0.75f,8.1f,-0.4f},{0.0f,8.2f,-0.5f},{0.75f,8.1f,-0.4f},{0.7f,7.9f,-0.1f}
 };
-
-struct LegSegment {
-    std::vector<int> groups; // all group ids that belong to this segment
-    Vec3 pivotTop{ 0,0,0 };    // pivot at segment's top (center xz, max y)
+const int gFootQuads[][4] = {
+    {0,1,2,3},{4,5,1,0},{7,6,2,3},{4,0,3,7},{5,4,7,6},{8,9,10,11},{12,13,9,8},{15,14,10,11},{12,8,11,15},{13,12,15,14},{16,17,18,19},{20,21,17,16},{23,22,18,19},{20,16,19,23},{21,20,23,22},{24,25,26,27},{28,29,25,24},{31,30,26,27},{28,24,27,31},{29,28,31,30},{32,33,34,35},{36,37,33,32},{39,38,34,35},{36,32,35,39},{37,36,39,38},{4,40,41,7},{12,4,7,15},{20,12,15,23},{28,20,23,31},{36,28,31,39},{39,36,42,43},{40,5,13,12},{5,4,12,-1},{13,21,20,12},{21,29,28,20},{29,37,36,28},{37,42,36,-1},{5,50,13,-1},{13,50,21,-1},{21,50,29,-1},{29,50,37,-1},{37,50,42,-1},{41,45,49,43},{41,44,45,-1},{15,14,49,45},{23,22,14,15},{31,30,22,23},{39,38,30,31},{43,38,39,-1},{43,49,38,-1},{44,53,58,45},{45,58,52,46},{46,52,51,47},{47,51,57,48},{48,57,54,49},{49,54,53,44},{50,52,51,-1},{40,41,45,46},{46,52,47},{40,46,45,-1},{42,43,49,48},{48,51,47,-1},{42,48,49,-1},{50,40,46,52},{50,42,48,51},{50,40,52,-1},{50,42,51,-1},{53,59,60,54},{54,60,61,55},{55,61,62,56},{56,62,63,57},{57,63,64,58},{58,64,59,53},{59,65,66,60},{60,66,67,61},{61,67,68,62},{62,68,69,63},{63,69,70,64},{64,70,65,59},{65,71,72,66},{66,72,73,67},{67,73,74,68},{68,74,75,69},{69,75,76,70},{70,76,71,65},{71,77,78,72},{72,78,79,73},{73,79,80,74},{74,80,81,75},{75,81,82,76},{76,82,77,71},{82,81,80,-1},{82,80,79,-1},{82,79,78,-1},{82,78,77,-1}
 };
-struct LegChain {
-    LegSegment thigh, calf, foot, toe;
-    bool valid() const {
-        return !thigh.groups.empty() || !calf.groups.empty() || !foot.groups.empty() || !toe.groups.empty();
-    }
-};
-// =============================================================
+std::vector<Tri>   gTris;
+std::vector<Vec3f> gVertexNormals;
+Vec3f gModelCenter{ 0,0,0 };
 
-// ====================== Global Win32/GL =======================
-HWND  g_hWnd = nullptr;
-HDC   g_hDC = nullptr;
-HGLRC g_hRC = nullptr;
-int   g_Width = 1280, g_Height = 720;
+// --- Body/Head Data ---
+GLUquadric* g_headQuadric = nullptr;
+#define C0 1.0000000f
+#define S0 0.0000000f
+#define C1 0.9238795f
+#define S1 0.3826834f
+#define C2 0.7071068f
+#define S2 0.7071068f
+#define C3 0.3826834f
+#define S3 0.9238795f
+#define C4 0.0000000f
+#define S4 1.0000000f
+#define C5 -0.3826834f
+#define S5 0.9238795f
+#define C6 -0.7071068f
+#define S6 0.7071068f
+#define C7 -0.9238795f
+#define S7 0.3826834f
+#define C8 -1.0000000f
+#define S8 0.0000000f
+#define C9 -0.9238795f
+#define S9 -0.3826834f
+#define C10 -0.7071068f
+#define S10 -0.7071068f
+#define C11 -0.3826834f
+#define S11 -0.9238795f
+#define C12 0.0000000f
+#define S12 -1.0000000f
+#define C13 0.3826834f
+#define S13 -0.9238795f
+#define C14 0.7071068f
+#define S14 -0.7071068f
+#define C15 0.9238795f
+#define S15 -0.3826834f
+const float segCos[] = { C0,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14,C15 };
+const float segSin[] = { S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15 };
+#define R0 0.38f
+#define R1 0.37f
+#define R2 0.36f
+#define R3 0.35f
+#define R4 0.34f
+#define R5 0.32f
+#define R6 0.30f
+#define R7 0.28f
+#define R8 0.27f
+#define R9 0.28f
+#define R10 0.29f
+#define R11 0.30f
+#define R12 0.29f
+#define R13 0.27f
+#define R14 0.24f
+#define R15 0.21f
+#define R16 0.19f
+#define R17 0.16f
+#define R18 0.133f
+#define Y0 0.00f
+#define Y1 0.05f
+#define Y2 0.10f
+#define Y3 0.15f
+#define Y4 0.20f
+#define Y5 0.28f
+#define Y6 0.36f
+#define Y7 0.44f
+#define Y8 0.52f
+#define Y9 0.60f
+#define Y10 0.68f
+#define Y11 0.76f
+#define Y12 0.82f
+#define Y13 0.88f
+#define Y14 0.92f
+#define Y15 0.96f
+#define Y16 0.98f
+#define Y17 1.04f
+#define Y18 1.10f
+#define HEAD_CENTER_Y 1.30f
+#define HEAD_RADIUS   0.24f
+#define QUAD(r1,y1,r2,y2,cA,sA,cB,sB) glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cA),(y2),(r2)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cB),(y1),(r1)*(sB));
+#define BAND(rA,yA,rB,yB) QUAD(rA,yA,rB,yB,C0,S0,C1,S1) QUAD(rA,yA,rB,yB,C1,S1,C2,S2) QUAD(rA,yA,rB,yB,C2,S2,C3,S3) QUAD(rA,yA,rB,yB,C3,S3,C4,S4) QUAD(rA,yA,rB,yB,C4,S4,C5,S5) QUAD(rA,yA,rB,yB,C5,S5,C6,S6) QUAD(rA,yA,rB,yB,C6,S6,C7,S7) QUAD(rA,yA,rB,yB,C7,S7,C8,S8) QUAD(rA,yA,rB,yB,C8,S8,C9,S9) QUAD(rA,yA,rB,yB,C9,S9,C10,S10) QUAD(rA,yA,rB,yB,C10,S10,C11,S11) QUAD(rA,yA,rB,yB,C11,S11,C12,S12) QUAD(rA,yA,rB,yB,C12,S12,C13,S13) QUAD(rA,yA,rB,yB,C13,S13,C14,S14) QUAD(rA,yA,rB,yB,C14,S14,C15,S15) QUAD(rA,yA,rB,yB,C15,S15,C0,S0)
 
-Mesh  g_Model;
-bool  g_ModelLoaded = false;
+// --- Arm/Hand Data ---
+std::vector<HandJoint> g_HandJoints;
+std::vector<HandJoint> g_HandJoints2;
+std::vector<ArmJoint> g_ArmJoints;
+std::vector<ArmJoint> g_ArmJoints2;
 
-// Camera/orbit/pan/zoom
-float g_Scale = 1.0f;
-float g_CamDist = 6.0f;
-float g_CamDistDefault = 6.0f;
-float g_OrbitYawDeg = 0.0f;
-float g_OrbitPitchDeg = 15.0f; // slight tilt
-float g_PanX = 0.0f, g_PanY = 0.0f;
+// ===================================================================
+//
+// SECTION 2: HELPER & SETUP FUNCTIONS
+//
+// ===================================================================
 
-bool  g_Wireframe = false;
+// --- Forward Declarations ---
+LRESULT WINAPI WindowProcedure(HWND, UINT, WPARAM, LPARAM);
+void display();
+void updateCharacter(float dt);
+void drawLeg(bool mirrorX, float swingAngle);
+void drawBodyAndHead(float leftLegAngle, float rightLegAngle);
+void drawSkirt(float leftLegAngle, float rightLegAngle);
+void drawArmsAndHands(float leftArmAngle, float rightArmAngle);
 
-// Mouse
-bool  g_LButtonDown = false;
-int   g_LastMouseX = 0, g_LastMouseY = 0;
-
-// Character world position & facing
-float g_CharPosX = 0.0f, g_CharPosZ = 0.0f;
-float g_HeadingDeg = 0.0f; // 面朝前进方向（绕Y）
-
-// Face (head) rotation state
-static float g_FaceYawDeg = 0.0f;  // J/K
-static float g_FacePitchDeg = 0.0f;  // I/M
-static float g_FaceRollDeg = 0.0f;  // U/O
-
-// Groups
-int   g_HeadGroupId = -1;
-Vec3  g_HeadPivot{ 0,0,0 };
-
-// Shoes control
-std::vector<int> g_ShoeGroupIds;
-bool g_ShoesOn = true;                   // visible or not
-bool g_UsingFeetAsShoesFallback = false; // true if using Foot/Toe fallback
-
-// Legs (detected by keywords or exact names)
-LegChain g_LeftLeg;
-LegChain g_RightLeg;
-
-// Walking animation state
-bool g_KeyLeft = false, g_KeyRight = false, g_KeyUp = false, g_KeyDown = false;
-float g_WalkPhase = 0.0f;   // radians
-float g_WalkBlend = 0.0f;   // 0..1 smooth in/out
-// =============================================================
-
-// ========================= Math utils =========================
-static const float kPI = 3.14159265358979323846f;
-static const float kTAU = 6.2831853071795864769f;
-
-static inline Vec3 operator+(const Vec3& a, const Vec3& b) { return { a.x + b.x,a.y + b.y,a.z + b.z }; }
-static inline Vec3 operator-(const Vec3& a, const Vec3& b) { return { a.x - b.x,a.y - b.y,a.z - b.z }; }
-static inline Vec3 operator*(const Vec3& a, float s) { return { a.x * s,a.y * s,a.z * s }; }
-static inline void addTo(Vec3& a, const Vec3& b) { a.x += b.x; a.y += b.y; a.z += b.z; }
-static inline void normalize(Vec3& v) {
-    float len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    if (len > 1e-6f) { v.x /= len; v.y /= len; v.z /= len; }
+// --- Math & Model Building ---
+Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
+Vec3f cross(const Vec3f& a, const Vec3f& b) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
+float dot(const Vec3f& a, const Vec3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Vec3f normalize(const Vec3f& v) { float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); return (l > 1e-6f) ? Vec3f{ v.x / l, v.y / l, v.z / l } : Vec3f{ 0,0,0 }; }
+Vec3f faceNormal(int i0, int i1, int i2) { return normalize(cross(sub(gFootVertices[i1], gFootVertices[i0]), sub(gFootVertices[i2], gFootVertices[i0]))); }
+Vec3f triCenter(int i0, int i1, int i2) { const Vec3f& v0 = gFootVertices[i0], & v1 = gFootVertices[i1], & v2 = gFootVertices[i2]; return { (v0.x + v1.x + v2.x) / 3.f,(v0.y + v1.y + v2.y) / 3.f,(v0.z + v1.z + v2.z) / 3.f }; }
+void buildTriangles() {
+    int nV = sizeof(gFootVertices) / sizeof(gFootVertices[0]); for (int i = 0; i < nV; ++i) { gModelCenter.x += gFootVertices[i].x; gModelCenter.y += gFootVertices[i].y; gModelCenter.z += gFootVertices[i].z; } gModelCenter.x /= nV; gModelCenter.y /= nV; gModelCenter.z /= nV; gTris.clear();
+    for (const auto& q : gFootQuads) { if (q[3] == -1) { int a = q[0], b = q[1], c = q[2]; if (dot(faceNormal(a, b, c), sub(triCenter(a, b, c), gModelCenter)) < 0)std::swap(b, c); gTris.push_back({ a,b,c }); } else { int a = q[0], b = q[1], c = q[2], d = q[3]; {int i0 = a, i1 = b, i2 = d; if (dot(faceNormal(i0, i1, i2), sub(triCenter(i0, i1, i2), gModelCenter)) < 0)std::swap(i1, i2); gTris.push_back({ i0,i1,i2 }); } {int i0 = b, i1 = c, i2 = d; if (dot(faceNormal(i0, i1, i2), sub(triCenter(i0, i1, i2), gModelCenter)) < 0)std::swap(i1, i2); gTris.push_back({ i0,i1,i2 }); } } }
 }
-static void PerspectiveGL(double fovY, double aspect, double zNear, double zFar) {
-    double fH = std::tan(fovY * 0.5 * 3.14159265358979323846 / 180.0) * zNear;
-    double fW = fH * aspect;
-    glFrustum(-fW, fW, -fH, fH, zNear, zFar);
+void computeVertexNormals() {
+    int nV = sizeof(gFootVertices) / sizeof(gFootVertices[0]); gVertexNormals.assign(nV, { 0,0,0 });
+    for (const auto& t : gTris) { Vec3f n = faceNormal(t.a, t.b, t.c); gVertexNormals[t.a].x += n.x; gVertexNormals[t.a].y += n.y; gVertexNormals[t.a].z += n.z; gVertexNormals[t.b].x += n.x; gVertexNormals[t.b].y += n.y; gVertexNormals[t.b].z += n.z; gVertexNormals[t.c].x += n.x; gVertexNormals[t.c].y += n.y; gVertexNormals[t.c].z += n.z; }
+    for (int i = 0; i < nV; ++i)gVertexNormals[i] = normalize(gVertexNormals[i]);
 }
-static inline std::string trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n");
-    size_t b = s.find_last_not_of(" \t\r\n");
-    if (a == std::string::npos) return "";
-    return s.substr(a, b - a + 1);
+static void InitializeHand() {
+    g_HandJoints.clear();
+    g_HandJoints.resize(21);
+    g_HandJoints[0] = { {0.0f, 0.0f, 0.0f}, -1 };
+    g_HandJoints[1] = { {0.6f, -0.1f, 0.4f}, 0 }; g_HandJoints[2] = { {0.9f, 0.0f, 0.7f}, 1 }; g_HandJoints[3] = { {1.1f, 0.1f, 0.9f}, 2 }; g_HandJoints[4] = { {1.2f, 0.2f, 1.1f}, 3 };
+    g_HandJoints[5] = { {0.3f, 0.1f, 1.0f}, 0 }; g_HandJoints[6] = { {0.3f, 0.0f, 1.6f}, 5 }; g_HandJoints[7] = { {0.3f, 0.0f, 2.0f}, 6 }; g_HandJoints[8] = { {0.3f, 0.0f, 2.3f}, 7 };
+    g_HandJoints[9] = { {0.0f, 0.1f, 1.1f}, 0 }; g_HandJoints[10] = { {0.0f, 0.0f, 1.8f}, 9 }; g_HandJoints[11] = { {0.0f, 0.0f, 2.3f}, 10 }; g_HandJoints[12] = { {0.0f, 0.0f, 2.6f}, 11 };
+    g_HandJoints[13] = { {-0.3f, 0.1f, 1.0f}, 0 }; g_HandJoints[14] = { {-0.3f, 0.0f, 1.7f}, 13 }; g_HandJoints[15] = { {-0.3f, 0.0f, 2.1f}, 14 }; g_HandJoints[16] = { {-0.3f, 0.0f, 2.4f}, 15 };
+    g_HandJoints[17] = { {-0.5f, 0.05f, 0.8f}, 0 }; g_HandJoints[18] = { {-0.5f, 0.0f, 1.3f}, 17 }; g_HandJoints[19] = { {-0.5f, 0.0f, 1.6f}, 18 }; g_HandJoints[20] = { {-0.5f, 0.0f, 1.8f}, 19 };
 }
-static inline std::string toLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-        [](unsigned char c) { return char(std::tolower(c)); });
-    return s;
+static void InitializeHand2() {
+    g_HandJoints2.clear();
+    g_HandJoints2.resize(21);
+    float xOffset = 0.0f;
+    float flipSign = -1.0f;
+    g_HandJoints2[0] = { {xOffset + 0.0f * flipSign, 0.0f, 0.0f}, -1 };
+    g_HandJoints2[1] = { {xOffset + 0.6f * flipSign, -0.1f, 0.4f}, 0 }; g_HandJoints2[2] = { {xOffset + 0.9f * flipSign, 0.0f, 0.7f}, 1 }; g_HandJoints2[3] = { {xOffset + 1.1f * flipSign, 0.1f, 0.9f}, 2 }; g_HandJoints2[4] = { {xOffset + 1.2f * flipSign, 0.2f, 1.1f}, 3 };
+    g_HandJoints2[5] = { {xOffset + 0.3f * flipSign, 0.1f, 1.0f}, 0 }; g_HandJoints2[6] = { {xOffset + 0.3f * flipSign, 0.0f, 1.6f}, 5 }; g_HandJoints2[7] = { {xOffset + 0.3f * flipSign, 0.0f, 2.0f}, 6 }; g_HandJoints2[8] = { {xOffset + 0.3f * flipSign, 0.0f, 2.3f}, 7 };
+    g_HandJoints2[9] = { {xOffset + 0.0f * flipSign, 0.1f, 1.1f}, 0 }; g_HandJoints2[10] = { {xOffset + 0.0f * flipSign, 0.0f, 1.8f}, 9 }; g_HandJoints2[11] = { {xOffset + 0.0f * flipSign, 0.0f, 2.3f}, 10 }; g_HandJoints2[12] = { {xOffset + 0.0f * flipSign, 0.0f, 2.6f}, 11 };
+    g_HandJoints2[13] = { {xOffset + -0.3f * flipSign, 0.1f, 1.0f}, 0 }; g_HandJoints2[14] = { {xOffset + -0.3f * flipSign, 0.0f, 1.7f}, 13 }; g_HandJoints2[15] = { {xOffset + -0.3f * flipSign, 0.0f, 2.1f}, 14 }; g_HandJoints2[16] = { {xOffset + -0.3f * flipSign, 0.0f, 2.4f}, 15 };
+    g_HandJoints2[17] = { {xOffset + -0.5f * flipSign, 0.05f, 0.8f}, 0 }; g_HandJoints2[18] = { {xOffset + -0.5f * flipSign, 0.0f, 1.3f}, 17 }; g_HandJoints2[19] = { {xOffset + -0.5f * flipSign, 0.0f, 1.6f}, 18 }; g_HandJoints2[20] = { {xOffset + -0.5f * flipSign, 0.0f, 1.8f}, 19 };
 }
-// =============================================================
-
-// ========================= OBJ loader =========================
-struct FaceIdx { int v = 0, vt = 0, vn = 0; };
-
-static bool parseFaceToken(const std::string& tok, int vCount, FaceIdx& out) {
-    int vi = 0, vti = 0, vni = 0; bool have_vt = false, have_vn = false;
-    size_t p1 = tok.find('/');
-    if (p1 == std::string::npos) {
-        vi = std::stoi(tok);
-    }
-    else {
-        size_t p2 = tok.find('/', p1 + 1);
-        vi = std::stoi(tok.substr(0, p1));
-        if (p2 == std::string::npos) {
-            std::string s_vt = tok.substr(p1 + 1);
-            if (!s_vt.empty()) { vti = std::stoi(s_vt); have_vt = true; }
-        }
-        else {
-            std::string s_vt = tok.substr(p1 + 1, p2 - p1 - 1);
-            std::string s_vn = tok.substr(p2 + 1);
-            if (!s_vt.empty()) { vti = std::stoi(s_vt); have_vt = true; }
-            if (!s_vn.empty()) { vni = std::stoi(s_vn); have_vn = true; }
-        }
-    }
-    auto fixIndex = [vCount](int idx)->int {
-        return (idx < 0) ? (vCount + idx) : (idx - 1);
-    };
-    out.v = fixIndex(vi);
-    out.vt = have_vt ? fixIndex(vti) : -1;
-    out.vn = have_vn ? fixIndex(vni) : -1;
-    return (out.v >= 0 && out.v < vCount);
+static void InitializeArm() {
+    g_ArmJoints.clear();
+    g_ArmJoints.resize(6);
+    g_ArmJoints[0] = { {0.0f, 0.0f, 0.1f}, -1 };
+    g_ArmJoints[1] = { {0.15f, 0.08f, 2.0f}, 0 };
+    g_ArmJoints[2] = { {0.25f, 0.12f, 4.2f}, 1 };
+    g_ArmJoints[3] = { {0.30f, 0.15f, 6.8f}, 2 };
+    g_ArmJoints[4] = { {0.35f, 0.20f, 9.5f}, 3 };
+    g_ArmJoints[5] = { {0.28f, 0.35f, 12.0f}, 4 };
 }
-
-static void computeBounds(Mesh& m) {
-    if (m.vertices.empty()) { m.bboxMin = { 0,0,0 }; m.bboxMax = { 0,0,0 }; m.centroid = { 0,0,0 }; return; }
-    m.bboxMin = m.bboxMax = m.vertices[0];
-    Vec3 sum{ 0,0,0 };
-    for (const auto& p : m.vertices) {
-        m.bboxMin.x = std::min(m.bboxMin.x, p.x);
-        m.bboxMin.y = std::min(m.bboxMin.y, p.y);
-        m.bboxMin.z = std::min(m.bboxMin.z, p.z);
-        m.bboxMax.x = std::max(m.bboxMax.x, p.x);
-        m.bboxMax.y = std::max(m.bboxMax.y, p.y);
-        m.bboxMax.z = std::max(m.bboxMax.z, p.z);
-        addTo(sum, p);
-    }
-    float inv = 1.0f / float(m.vertices.size());
-    m.centroid = sum * inv;
+static void InitializeArm2() {
+    g_ArmJoints2.clear();
+    g_ArmJoints2.resize(6);
+    float xOffset = 0.0f;
+    float flipSign = -1.0f;
+    g_ArmJoints2[0] = { {xOffset + 0.0f * flipSign, 0.0f, 0.1f}, -1 };
+    g_ArmJoints2[1] = { {xOffset + 0.15f * flipSign, 0.08f, 2.0f}, 0 };
+    g_ArmJoints2[2] = { {xOffset + 0.25f * flipSign, 0.12f, 4.2f}, 1 };
+    g_ArmJoints2[3] = { {xOffset + 0.30f * flipSign, 0.15f, 6.8f}, 2 };
+    g_ArmJoints2[4] = { {xOffset + 0.35f * flipSign, 0.20f, 9.5f}, 3 };
+    g_ArmJoints2[5] = { {xOffset + 0.28f * flipSign, 0.35f, 12.0f}, 4 };
 }
-
-static void computeVertexNormals(Mesh& m) {
-    m.normals.assign(m.vertices.size(), { 0,0,0 });
-    for (const auto& t : m.tris) {
-        const Vec3& A = m.vertices[t.i0];
-        const Vec3& B = m.vertices[t.i1];
-        const Vec3& C = m.vertices[t.i2];
-        Vec3 U = B - A;
-        Vec3 V = C - A;
-        Vec3 N = { U.y * V.z - U.z * V.y, U.z * V.x - U.x * V.z, U.x * V.y - U.y * V.x };
-        addTo(m.normals[t.i0], N);
-        addTo(m.normals[t.i1], N);
-        addTo(m.normals[t.i2], N);
-    }
-    for (auto& n : m.normals) normalize(n);
-}
-
-static int getOrCreateGroup(std::unordered_map<std::string, int>& map, Mesh& m, const std::string& name) {
-    auto it = map.find(name);
-    if (it != map.end()) return it->second;
-    int id = (int)m.groupNames.size();
-    m.groupNames.push_back(name);
-    map[name] = id;
-    return id;
-}
-
-static bool loadOBJ(const char* path, Mesh& out) {
-    std::ifstream in(path);
-    if (!in.is_open()) return false;
-
-    out = Mesh{};
-    std::vector<Vec3> tempV;
-    std::unordered_map<std::string, int> groupMap;
-    int currentGroup = getOrCreateGroup(groupMap, out, "default");
-
-    std::string line;
-    while (std::getline(in, line)) {
-        line = trim(line);
-        if (line.empty() || line[0] == '#') continue;
-        if (line.rfind("v ", 0) == 0) {
-            std::istringstream ss(line.substr(2));
-            Vec3 p; ss >> p.x >> p.y >> p.z; tempV.push_back(p);
-        }
-        else if (line.rfind("g ", 0) == 0) {
-            std::string gname = trim(line.substr(2));
-            std::istringstream gs(gname);
-            std::string first; gs >> first;
-            if (first.empty()) first = "default";
-            currentGroup = getOrCreateGroup(groupMap, out, first);
-        }
-        else if (line.rfind("f ", 0) == 0) {
-            std::istringstream fs(line.substr(2));
-            std::vector<FaceIdx> idx;
-            std::string tok;
-            while (fs >> tok) {
-                FaceIdx fi;
-                if (parseFaceToken(tok, (int)tempV.size(), fi))
-                    idx.push_back(fi);
-            }
-            if (idx.size() < 3) continue;
-            for (size_t i = 1; i + 1 < idx.size(); ++i) {
-                Tri t;
-                t.i0 = idx[0].v;
-                t.i1 = idx[i].v;
-                t.i2 = idx[i + 1].v;
-                t.groupId = currentGroup;
-                out.tris.push_back(t);
-            }
-        }
-        else {
-            // ignore vt, vn, usemtl, mtllib, s, o...
-        }
-    }
-    out.vertices = tempV;
-    computeBounds(out);
-    computeVertexNormals(out);
-    return true;
-}
-// =============================================================
-
-// ============ Head & Shoes detection + Leg detection ==========
-static int findGroupIdByExactName(const Mesh& m, const char* name) {
-    for (size_t i = 0; i < m.groupNames.size(); ++i)
-        if (m.groupNames[i] == name) return (int)i;
-    return -1;
-}
-static bool containsWord(const std::string& s, const char* word) {
-    std::string t = toLower(s);
-    std::string w = toLower(std::string(word));
-    return t.find(w) != std::string::npos;
-}
-static bool isLeftName(const std::string& s) {
-    std::string t = toLower(s);
-    return t.find("_l") != std::string::npos || t.find(" left") != std::string::npos || t.find("left_") != std::string::npos;
-}
-static bool isRightName(const std::string& s) {
-    std::string t = toLower(s);
-    return t.find("_r") != std::string::npos || t.find(" right") != std::string::npos || t.find("right_") != std::string::npos;
+void initializeCharacterParts() {
+    buildTriangles();
+    computeVertexNormals();
+    InitializeHand();
+    InitializeHand2();
+    InitializeArm();
+    InitializeArm2();
 }
 
-static Vec3 computeGroupsBBoxPivotTop(const Mesh& m, const std::vector<int>& groupIds) {
-    if (groupIds.empty()) return m.centroid;
-    Vec3 mn{ +1e9f,+1e9f,+1e9f }, mx{ -1e9f,-1e9f,-1e9f };
-    bool any = false;
-    for (int gid : groupIds) {
-        for (const auto& t : m.tris) {
-            if (t.groupId != gid) continue;
-            const Vec3& a = m.vertices[t.i0], & b = m.vertices[t.i1], & c = m.vertices[t.i2];
-            if (!any) { mn = a; mx = a; any = true; }
-            mn.x = std::min(mn.x, a.x); mn.y = std::min(mn.y, a.y); mn.z = std::min(mn.z, a.z);
-            mn.x = std::min(mn.x, b.x); mn.y = std::min(mn.y, b.y); mn.z = std::min(mn.z, b.z);
-            mn.x = std::min(mn.x, c.x); mn.y = std::min(mn.y, c.y); mn.z = std::min(mn.z, c.z);
-            mx.x = std::max(mx.x, a.x); mx.y = std::max(mx.y, a.y); mx.z = std::max(mx.z, a.z);
-            mx.x = std::max(mx.x, b.x); mx.y = std::max(mx.y, b.y); mx.z = std::max(mx.z, b.z);
-            mx.x = std::max(mx.x, c.x); mx.y = std::max(mx.y, c.y); mx.z = std::max(mx.z, c.z);
-        }
-    }
-    if (!any) return m.centroid;
-    return { (mn.x + mx.x) * 0.5f, mx.y, (mn.z + mx.z) * 0.5f };
-}
+// ===================================================================
+//
+// SECTION 3: DRAWING ROUTINES
+//
+// ===================================================================
 
-static void chooseHeadGroupAndPivot() {
-    g_HeadGroupId = findGroupIdByExactName(g_Model, kHeadName);
-    if (g_HeadGroupId < 0) {
-        int best = -1;
-        for (int gid = 0; gid < (int)g_Model.groupNames.size(); ++gid)
-            if (containsWord(g_Model.groupNames[gid], "head")) { best = gid; break; }
-        if (best >= 0) g_HeadGroupId = best;
-    }
-    if (g_HeadGroupId < 0) {
-        double bestY = -1e9; int bestId = -1;
-        for (int gid = 0; gid < (int)g_Model.groupNames.size(); ++gid) {
-            double sy = 0; size_t cnt = 0;
-            for (const auto& t : g_Model.tris) {
-                if (t.groupId != gid) continue;
-                sy += g_Model.vertices[t.i0].y + g_Model.vertices[t.i1].y + g_Model.vertices[t.i2].y;
-                cnt += 3;
-            }
-            double cy = (cnt ? sy / double(cnt) : 0.0);
-            if (cy > bestY) { bestY = cy; bestId = gid; }
-        }
-        g_HeadGroupId = bestId;
-    }
-    if (g_HeadGroupId >= 0)
-        g_HeadPivot = computeGroupsBBoxPivotTop(g_Model, std::vector<int>{g_HeadGroupId});
-    else
-        g_HeadPivot = g_Model.centroid;
-}
-
-static void chooseShoeGroups() {
-    g_ShoeGroupIds.clear();
-    g_UsingFeetAsShoesFallback = false;
-
-    // 1) Prefer real shoes: names contain "shoe" or "boot"
-    for (int gid = 0; gid < (int)g_Model.groupNames.size(); ++gid) {
-        std::string n = toLower(g_Model.groupNames[gid]);
-        if (n.find("shoe") != std::string::npos || n.find("boot") != std::string::npos)
-            g_ShoeGroupIds.push_back(gid);
-    }
-    if (!g_ShoeGroupIds.empty()) {
-        g_ShoesOn = false; // start OFF so first Q puts shoes on
-        OutputDebugStringA("[INFO] Found shoe groups. Start with shoes OFF.\n");
-        return;
-    }
-
-    // 2) Fallback: use Foot/Toe as "shoes"
-    for (int gid = 0; gid < (int)g_Model.groupNames.size(); ++gid) {
-        std::string n = toLower(g_Model.groupNames[gid]);
-        if (n.find("foot") != std::string::npos || n.find("toe") != std::string::npos)
-            g_ShoeGroupIds.push_back(gid);
-    }
-    if (!g_ShoeGroupIds.empty()) {
-        g_UsingFeetAsShoesFallback = true;
-        g_ShoesOn = true;
-        OutputDebugStringA("[WARN] No shoe groups; using Foot/Toe as fallback. Start with shoes ON.\n");
-    }
-    else {
-        g_ShoesOn = true; // nothing to toggle
-        OutputDebugStringA("[WARN] No shoe/foot/toe groups detected; Q has no effect.\n");
-    }
-}
-
-// ---------- Legs: prioritize your exact group names; fallback to keywords ----------
-static void detectLegChainOneSide(bool left, LegChain& out) {
-    out = LegChain{};
-
-    auto pushIfFound = [&](const char* name, std::vector<int>& dst) {
-        int id = findGroupIdByExactName(g_Model, name);
-        if (id >= 0) dst.push_back(id);
-        return id >= 0;
-    };
-
-    bool usedExact = false;
-    if (left) {
-        bool any = false;
-        any |= pushIfFound("Bip001_L_Calf_02", out.calf.groups);
-        any |= pushIfFound("Bip001_L_Foot_03", out.foot.groups);
-        any |= pushIfFound("Bip001_L_Toe0_04", out.toe.groups);
-        usedExact = any;
-    }
-    else {
-        bool any = false;
-        any |= pushIfFound("Bip001_R_Calf_05", out.calf.groups);
-        any |= pushIfFound("Bip001_R_Foot_06", out.foot.groups);
-        any |= pushIfFound("Bip001_R_Toe0_07", out.toe.groups);
-        usedExact = any;
-    }
-
-    if (!usedExact) {
-        for (int gid = 0; gid < (int)g_Model.groupNames.size(); ++gid) {
-            const std::string& name = g_Model.groupNames[gid];
-            bool side = left ? isLeftName(name) : isRightName(name);
-            if (!side) continue;
-            std::string t = toLower(name);
-            if (t.find("thigh") != std::string::npos || t.find("upleg") != std::string::npos || t.find("upperleg") != std::string::npos) {
-                out.thigh.groups.push_back(gid);
-            }
-            else if (t.find("calf") != std::string::npos || t.find("shin") != std::string::npos || t.find("leg") != std::string::npos) {
-                out.calf.groups.push_back(gid);
-            }
-            else if (t.find("foot") != std::string::npos) {
-                out.foot.groups.push_back(gid);
-            }
-            else if (t.find("toe") != std::string::npos) {
-                out.toe.groups.push_back(gid);
-            }
-        }
-    }
-
-    if (!out.thigh.groups.empty()) out.thigh.pivotTop = computeGroupsBBoxPivotTop(g_Model, out.thigh.groups);
-    if (!out.calf.groups.empty())  out.calf.pivotTop = computeGroupsBBoxPivotTop(g_Model, out.calf.groups);
-    if (!out.foot.groups.empty())  out.foot.pivotTop = computeGroupsBBoxPivotTop(g_Model, out.foot.groups);
-    if (!out.toe.groups.empty())  out.toe.pivotTop = computeGroupsBBoxPivotTop(g_Model, out.toe.groups);
-}
-// =============================================================
-
-// ===================== OpenGL setup/draw ======================
-static bool initPixelFormat(HDC hdc) {
-    PIXELFORMATDESCRIPTOR pfd = { sizeof(PIXELFORMATDESCRIPTOR) };
-    pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.iPixelType = PFD_TYPE_RGBA;
-    pfd.cColorBits = 24;
-    pfd.cDepthBits = 24;
-    pfd.iLayerType = PFD_MAIN_PLANE;
-    int pf = ChoosePixelFormat(hdc, &pfd);
-    if (!pf) return false;
-    if (!SetPixelFormat(hdc, pf, &pfd)) return false;
-    return true;
-}
-
-static void applyPolygonMode() {
-    glPolygonMode(GL_FRONT_AND_BACK, g_Wireframe ? GL_LINE : GL_FILL);
-}
-
-static void initGL() {
-    glEnable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);       // safer if winding is mixed
-    glShadeModel(GL_SMOOTH);
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-
-    GLfloat lightPos[4] = { 0.2f, 1.0f, 1.0f, 0.0f };
-    GLfloat lightCol[4] = { 1, 1, 1, 1 };
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightCol);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, lightCol);
-
-    GLfloat matDiff[4] = { 0.8f, 0.8f, 0.85f, 1 };
-    GLfloat matSpec[4] = { 0.2f, 0.2f, 0.2f,  1 };
-    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, matDiff);
-    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, matSpec);
-    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 16.0f);
-
-    applyPolygonMode();
-}
-
-static void resizeGL(int w, int h) {
-    g_Width = (w > 0) ? w : 1;
-    g_Height = (h > 0) ? h : 1;
-    glViewport(0, 0, g_Width, g_Height);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    PerspectiveGL(45.0, double(g_Width) / double(g_Height), 0.1, 100.0);
-    glMatrixMode(GL_MODELVIEW);
-}
-
-// Draw helpers
-static void drawGroups(const Mesh& m, const std::vector<int>& groups, const std::unordered_set<int>& skip) {
-    if (groups.empty()) return;
-    glBegin(GL_TRIANGLES);
-    for (const auto& t : m.tris) {
-        if (skip.find(t.groupId) != skip.end()) continue;
-        if (std::find(groups.begin(), groups.end(), t.groupId) == groups.end()) continue;
-        const Vec3& n0 = m.normals[t.i0];
-        const Vec3& n1 = m.normals[t.i1];
-        const Vec3& n2 = m.normals[t.i2];
-        const Vec3& v0 = m.vertices[t.i0];
-        const Vec3& v1 = m.vertices[t.i1];
-        const Vec3& v2 = m.vertices[t.i2];
-        glNormal3f(n0.x, n0.y, n0.z); glVertex3f(v0.x, v0.y, v0.z);
-        glNormal3f(n1.x, n1.y, n1.z); glVertex3f(v1.x, v1.y, v1.z);
-        glNormal3f(n2.x, n2.y, n2.z); glVertex3f(v2.x, v2.y, v2.z);
-    }
-    glEnd();
-}
-
-static void drawMeshExcludingGroups(const Mesh& m, const std::unordered_set<int>& excluded) {
-    glBegin(GL_TRIANGLES);
-    for (const auto& t : m.tris) {
-        if (excluded.find(t.groupId) != excluded.end()) continue;
-        const Vec3& n0 = m.normals[t.i0];
-        const Vec3& n1 = m.normals[t.i1];
-        const Vec3& n2 = m.normals[t.i2];
-        const Vec3& v0 = m.vertices[t.i0];
-        const Vec3& v1 = m.vertices[t.i1];
-        const Vec3& v2 = m.vertices[t.i2];
-        glNormal3f(n0.x, n0.y, n0.z); glVertex3f(v0.x, v0.y, v0.z);
-        glNormal3f(n1.x, n1.y, n1.z); glVertex3f(v1.x, v1.y, v1.z);
-        glNormal3f(n2.x, n2.y, n2.z); glVertex3f(v2.x, v2.y, v2.z);
-    }
-    glEnd();
-}
-
-static void calcAutoScaleAndCam() {
-    Vec3 size = g_Model.bboxMax - g_Model.bboxMin;
-    float maxDim = std::max(size.x, std::max(size.y, size.z));
-    if (maxDim < 1e-6f) maxDim = 1.0f;
-    g_Scale = 2.5f / maxDim;   // Fit largest dimension to ~2.5 units
-    g_CamDist = 6.0f;
-    g_CamDistDefault = g_CamDist;
-}
-
-// ★ 带 footLift 的腿链绘制（支持缺失 Thigh）
-static void drawLegChain(const LegChain& leg,
-    float hipDeg, float kneeDeg, float ankleDeg, float toeDeg,
-    float footLift,
-    const std::unordered_set<int>& skipSet)
-{
-    if (!leg.valid()) return;
-
-    auto hasThigh = !leg.thigh.groups.empty();
-    auto hasCalf = !leg.calf.groups.empty();
-    auto hasFoot = !leg.foot.groups.empty();
-    auto hasToe = !leg.toe.groups.empty();
-
+// --- Leg Drawing ---
+void drawLeg(bool mirrorX, float swingAngle) {
     glPushMatrix();
-    if (hasThigh) {
-        // Root = Thigh
-        glPushMatrix();
-        glTranslatef(leg.thigh.pivotTop.x, leg.thigh.pivotTop.y, leg.thigh.pivotTop.z);
-        glRotatef(hipDeg, 1, 0, 0); // 髋
-        glTranslatef(-leg.thigh.pivotTop.x, -leg.thigh.pivotTop.y, -leg.thigh.pivotTop.z);
-        drawGroups(g_Model, leg.thigh.groups, skipSet);
+    const float hipHeight = 8.2f * LEG_SCALE;
+    glTranslatef(0.0f, hipHeight, 0.0f);
+    glRotatef(swingAngle, 1.0f, 0.0f, 0.0f);
+    glTranslatef(0.0f, -hipHeight, 0.0f);
 
-        if (hasCalf) {
-            glPushMatrix();
-            glTranslatef(leg.calf.pivotTop.x, leg.calf.pivotTop.y, leg.calf.pivotTop.z);
-            glRotatef(kneeDeg, 1, 0, 0); // 膝
-            glTranslatef(-leg.calf.pivotTop.x, -leg.calf.pivotTop.y, -leg.calf.pivotTop.z);
-            drawGroups(g_Model, leg.calf.groups, skipSet);
-
-            if (hasFoot) {
-                glPushMatrix();
-                glTranslatef(leg.foot.pivotTop.x, leg.foot.pivotTop.y, leg.foot.pivotTop.z);
-                glRotatef(ankleDeg, 1, 0, 0); // 踝
-                if (footLift > 0.0f) glTranslatef(0.0f, footLift, 0.0f); // 抬脚
-                glTranslatef(-leg.foot.pivotTop.x, -leg.foot.pivotTop.y, -leg.foot.pivotTop.z);
-                drawGroups(g_Model, leg.foot.groups, skipSet);
-
-                if (hasToe) {
-                    glPushMatrix();
-                    glTranslatef(leg.toe.pivotTop.x, leg.toe.pivotTop.y, leg.toe.pivotTop.z);
-                    glRotatef(toeDeg, 1, 0, 0); // 趾
-                    glTranslatef(-leg.toe.pivotTop.x, -leg.toe.pivotTop.y, -leg.toe.pivotTop.z);
-                    drawGroups(g_Model, leg.toe.groups, skipSet);
-                    glPopMatrix();
-                }
-                glPopMatrix();
-            }
-            glPopMatrix();
-        }
-        glPopMatrix();
+    float mirror = mirrorX ? -1.0f : 1.0f;
+    glColor3f(0.85f, 0.64f, 0.52f);
+    glBegin(GL_TRIANGLES);
+    for (const auto& t : gTris) {
+        const Vec3f& n0 = gVertexNormals[t.a]; const Vec3f& v0 = gFootVertices[t.a];
+        glNormal3f(n0.x * mirror, n0.y, n0.z); glVertex3f(v0.x * mirror, v0.y * LEG_SCALE, v0.z);
+        const Vec3f& n1 = gVertexNormals[t.b]; const Vec3f& v1 = gFootVertices[t.b];
+        glNormal3f(n1.x * mirror, n1.y, n1.z); glVertex3f(v1.x * mirror, v1.y * LEG_SCALE, v1.z);
+        const Vec3f& n2 = gVertexNormals[t.c]; const Vec3f& v2 = gFootVertices[t.c];
+        glNormal3f(n2.x * mirror, n2.y, n2.z); glVertex3f(v2.x * mirror, v2.y * LEG_SCALE, v2.z);
     }
-    else if (hasCalf) {
-        // Root = Calf（无大腿时，把髋摆动的一部分合入小腿）
-        glPushMatrix();
-        glTranslatef(leg.calf.pivotTop.x, leg.calf.pivotTop.y, leg.calf.pivotTop.z);
-        glRotatef(0.5f * hipDeg + kneeDeg, 1, 0, 0); // 0.5*hip + knee 近似
-        glTranslatef(-leg.calf.pivotTop.x, -leg.calf.pivotTop.y, -leg.calf.pivotTop.z);
-        drawGroups(g_Model, leg.calf.groups, skipSet);
-
-        if (hasFoot) {
-            glPushMatrix();
-            glTranslatef(leg.foot.pivotTop.x, leg.foot.pivotTop.y, leg.foot.pivotTop.z);
-            glRotatef(ankleDeg, 1, 0, 0);
-            if (footLift > 0.0f) glTranslatef(0.0f, footLift, 0.0f);
-            glTranslatef(-leg.foot.pivotTop.x, -leg.foot.pivotTop.y, -leg.foot.pivotTop.z);
-            drawGroups(g_Model, leg.foot.groups, skipSet);
-
-            if (hasToe) {
-                glPushMatrix();
-                glTranslatef(leg.toe.pivotTop.x, leg.toe.pivotTop.y, leg.toe.pivotTop.z);
-                glRotatef(toeDeg, 1, 0, 0);
-                glTranslatef(-leg.toe.pivotTop.x, -leg.toe.pivotTop.y, -leg.toe.pivotTop.z);
-                drawGroups(g_Model, leg.toe.groups, skipSet);
-                glPopMatrix();
-            }
-            glPopMatrix();
-        }
-        glPopMatrix();
-    }
-    else if (hasFoot) {
-        // 只有脚/趾时
-        glPushMatrix();
-        glTranslatef(leg.foot.pivotTop.x, leg.foot.pivotTop.y, leg.foot.pivotTop.z);
-        glRotatef(ankleDeg + 0.5f * hipDeg + 0.5f * kneeDeg, 1, 0, 0);
-        if (footLift > 0.0f) glTranslatef(0.0f, footLift, 0.0f);
-        glTranslatef(-leg.foot.pivotTop.x, -leg.foot.pivotTop.y, -leg.foot.pivotTop.z);
-        drawGroups(g_Model, leg.foot.groups, skipSet);
-
-        if (hasToe) {
-            glPushMatrix();
-            glTranslatef(leg.toe.pivotTop.x, leg.toe.pivotTop.y, leg.toe.pivotTop.z);
-            glRotatef(toeDeg, 1, 0, 0);
-            glTranslatef(-leg.toe.pivotTop.x, -leg.toe.pivotTop.y, -leg.toe.pivotTop.z);
-            drawGroups(g_Model, leg.toe.groups, skipSet);
-            glPopMatrix();
-        }
-        glPopMatrix();
-    }
-    else if (hasToe) {
-        glPushMatrix();
-        glTranslatef(leg.toe.pivotTop.x, leg.toe.pivotTop.y, leg.toe.pivotTop.z);
-        glRotatef(toeDeg + ankleDeg + kneeDeg + hipDeg, 1, 0, 0);
-        glTranslatef(-leg.toe.pivotTop.x, -leg.toe.pivotTop.y, -leg.toe.pivotTop.z);
-        drawGroups(g_Model, leg.toe.groups, skipSet);
-        glPopMatrix();
-    }
+    glEnd();
     glPopMatrix();
 }
 
-static void renderScene() {
-    glClearColor(0.08f, 0.08f, 0.09f, 1);
+// --- Skirt Drawing ---
+void drawSkirt(float leftLegAngle, float rightLegAngle) {
+    const float topR = R8 + 0.1f; const float topY = Y8 - 0.51f;
+    const float botR = 0.7f; const float botY = -1.7f;
+    float deltaY = topY - botY; float deltaR = botR - topR;
+    glColor3f(0.2f, 0.4f, 0.8f);
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < 16; ++i) {
+        int next_i = (i + 1) % 16;
+        float cA = segCos[i], sA = segSin[i];
+        float cB = segCos[next_i], sB = segSin[next_i];
+        Vec3f v_top_A = { topR * cA, topY, topR * sA }, v_bot_A = { botR * cA, botY, botR * sA };
+        Vec3f v_top_B = { topR * cB, topY, topR * sB }, v_bot_B = { botR * cB, botY, botR * sB };
+
+        float front_strength = 1.0f; float back_strength = 1.5f;
+        float angleA = (v_bot_A.x <= 0) ? leftLegAngle : rightLegAngle;
+        if (angleA > 0 && v_bot_A.z > 0) { v_bot_A.z += sin(angleA * PI / 180.0f) * front_strength; }
+        else if (angleA < 0 && v_bot_A.z < 0) { v_bot_A.z += sin(angleA * PI / 180.0f) * back_strength; }
+        float angleB = (v_bot_B.x <= 0) ? leftLegAngle : rightLegAngle;
+        if (angleB > 0 && v_bot_B.z > 0) { v_bot_B.z += sin(angleB * PI / 180.0f) * front_strength; }
+        else if (angleB < 0 && v_bot_B.z < 0) { v_bot_B.z += sin(angleB * PI / 180.0f) * back_strength; }
+
+        Vec3f nA = normalize({ deltaY * cA, deltaR, deltaY * sA }), nB = normalize({ deltaY * cB, deltaR, deltaY * sB });
+        glNormal3f(nA.x, nA.y, nA.z); glVertex3f(v_top_A.x, v_top_A.y, v_top_A.z);
+        glNormal3f(nA.x, nA.y, nA.z); glVertex3f(v_bot_A.x, v_bot_A.y, v_bot_A.z);
+        glNormal3f(nB.x, nB.y, nB.z); glVertex3f(v_bot_B.x, v_bot_B.y, v_bot_B.z);
+        glNormal3f(nA.x, nA.y, nA.z); glVertex3f(v_top_A.x, v_top_A.y, v_top_A.z);
+        glNormal3f(nB.x, nB.y, nB.z); glVertex3f(v_bot_B.x, v_bot_B.y, v_bot_B.z);
+        glNormal3f(nB.x, nB.y, nB.z); glVertex3f(v_top_B.x, v_top_B.y, v_top_B.z);
+    }
+    glEnd();
+}
+
+// --- Body and Head Drawing ---
+void drawFaceFeatures() {
+    const float eyeY = HEAD_CENTER_Y + HEAD_RADIUS * 0.05f; const float eyeZ = HEAD_RADIUS * 0.86f; const float eyeR = 0.026f;
+    glColor3f(0.1f, 0.1f, 0.1f);
+    glBegin(GL_POLYGON); for (float a = 0; a < 6.28; a += 0.5)glVertex3f(-0.09f + eyeR * cos(a), eyeY + eyeR * sin(a), eyeZ); glEnd();
+    glBegin(GL_POLYGON); for (float a = 0; a < 6.28; a += 0.5)glVertex3f(0.09f + eyeR * cos(a), eyeY + eyeR * sin(a), eyeZ); glEnd();
+    glColor3f(0.8f, 0.2f, 0.2f);
+    glBegin(GL_LINE_STRIP); glVertex3f(-0.08f, eyeY - 0.10f, eyeZ); glVertex3f(-0.05f, eyeY - 0.12f, eyeZ); glVertex3f(0.05f, eyeY - 0.12f, eyeZ); glVertex3f(0.08f, eyeY - 0.10f, eyeZ); glEnd();
+}
+void drawHeadSphere() {
+    if (!g_headQuadric)return; glPushMatrix(); glColor3f(0.9f, 0.7f, 0.6f);
+    GLdouble eq[4] = { 0,1,0,-Y18 }; glClipPlane(GL_CLIP_PLANE0, eq); glEnable(GL_CLIP_PLANE0);
+    glTranslatef(0, HEAD_CENTER_Y, 0); gluSphere(g_headQuadric, HEAD_RADIUS, 32, 24);
+    glDisable(GL_CLIP_PLANE0); glPopMatrix();
+}
+void drawTorso() {
+    glColor3f(0.2f, 0.4f, 0.8f); glBegin(GL_TRIANGLES);
+    BAND(R0, Y0, R1, Y1); BAND(R1, Y1, R2, Y2); BAND(R2, Y2, R3, Y3); BAND(R3, Y3, R4, Y4); BAND(R4, Y4, R5, Y5); BAND(R5, Y5, R6, Y6); BAND(R6, Y6, R7, Y7); BAND(R7, Y7, R8, Y8);
+    BAND(R8, Y8, R9, Y9); BAND(R9, Y9, R10, Y10); BAND(R10, Y10, R11, Y11); BAND(R11, Y11, R12, Y12); BAND(R12, Y12, R13, Y13); BAND(R13, Y13, R14, Y14); BAND(R14, Y14, R15, Y15);
+    glEnd();
+    glColor3f(0.9f, 0.7f, 0.6f); glBegin(GL_TRIANGLES);
+    BAND(R15, Y15, R16, Y16); BAND(R16, Y16, R17, Y17); BAND(R17, Y17, R18, Y18);
+    glEnd(); drawHeadSphere();
+}
+
+// --- Arm and Hand Drawing (Your Original Functions) ---
+static void drawRobotJoint(const Vec3& pos, float size) {
+    glPushMatrix();
+    glTranslatef(pos.x, pos.y, pos.z);
+    float half = size * 0.5f;
+    glBegin(GL_TRIANGLES);
+    glNormal3f(0, 0, 1);
+    glVertex3f(-half, -half, half); glVertex3f(half, -half, half); glVertex3f(half, half, half);
+    glVertex3f(-half, -half, half); glVertex3f(half, half, half); glVertex3f(-half, half, half);
+    glNormal3f(0, 0, -1);
+    glVertex3f(half, -half, -half); glVertex3f(-half, -half, -half); glVertex3f(-half, half, -half);
+    glVertex3f(half, -half, -half); glVertex3f(-half, half, -half); glVertex3f(half, half, -half);
+    glNormal3f(1, 0, 0);
+    glVertex3f(half, -half, half); glVertex3f(half, -half, -half); glVertex3f(half, half, -half);
+    glVertex3f(half, -half, half); glVertex3f(half, half, -half); glVertex3f(half, half, half);
+    glNormal3f(-1, 0, 0);
+    glVertex3f(-half, -half, -half); glVertex3f(-half, -half, half); glVertex3f(-half, half, half);
+    glVertex3f(-half, -half, -half); glVertex3f(-half, half, half); glVertex3f(-half, half, -half);
+    glNormal3f(0, 1, 0);
+    glVertex3f(-half, half, half); glVertex3f(half, half, half); glVertex3f(half, half, -half);
+    glVertex3f(-half, half, half); glVertex3f(half, half, -half); glVertex3f(-half, half, -half);
+    glNormal3f(0, -1, 0);
+    glVertex3f(-half, -half, -half); glVertex3f(half, -half, -half); glVertex3f(half, -half, half);
+    glVertex3f(-half, -half, -half); glVertex3f(half, -half, half); glVertex3f(-half, -half, half);
+    glEnd();
+    glPopMatrix();
+}
+static void drawAnatomicalArmSegment(const Vec3& start, const Vec3& end, float baseWidth, float baseHeight, float muscleWidth, float boneWidth) {
+    Vec3 dir = { end.x - start.x, end.y - start.y, end.z - start.z };
+    float length = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (length < 0.001f) return;
+    dir.x /= length; dir.y /= length; dir.z /= length;
+
+    glPushMatrix();
+    glTranslatef(start.x, start.y, start.z);
+    float pitch = asinf(-dir.y) * 180.0f / PI;
+    float yaw = atan2f(dir.x, dir.z) * 180.0f / PI;
+    glRotatef(yaw, 0, 1, 0);
+    glRotatef(pitch, 1, 0, 0);
+
+    glColor3f(0.85f, 0.64f, 0.52f);
+
+    float skinHalf = baseWidth * 0.5f;
+    float skinHeight = baseHeight * 0.5f;
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < 12; i++) {
+        float angle1 = (float)i * 2.0f * PI / 12.0f;
+        float angle2 = (float)(i + 1) * 2.0f * PI / 12.0f;
+        float x1 = cosf(angle1) * skinHalf;
+        float y1 = sinf(angle1) * skinHeight;
+        float x2 = cosf(angle2) * skinHalf;
+        float y2 = sinf(angle2) * skinHeight;
+        glNormal3f(cosf(angle1), sinf(angle1), 0);
+        glVertex3f(x1, y1, 0);
+        glVertex3f(x2, y2, 0);
+        glVertex3f(x1, y1, length);
+        glVertex3f(x1, y1, length);
+        glVertex3f(x2, y2, 0);
+        glVertex3f(x2, y2, length);
+    }
+    glEnd();
+    glPopMatrix();
+}
+static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
+    if (armJoints.empty()) return;
+    drawAnatomicalArmSegment({ 0,0,0 }, armJoints[1].position, 0.9f, 0.7f, 0.7f, 0.5f);
+    drawAnatomicalArmSegment(armJoints[1].position, armJoints[2].position, 1.0f, 0.8f, 0.8f, 0.6f);
+    drawAnatomicalArmSegment(armJoints[2].position, armJoints[3].position, 1.1f, 0.9f, 0.9f, 0.65f);
+    drawAnatomicalArmSegment(armJoints[3].position, armJoints[4].position, 1.05f, 0.85f, 0.85f, 0.7f);
+    drawAnatomicalArmSegment(armJoints[4].position, armJoints[5].position, 1.3f, 1.0f, 1.1f, 0.8f);
+
+    for (size_t i = 1; i < armJoints.size(); ++i) {
+        drawRobotJoint(armJoints[i].position, 0.15f + i * 0.03f);
+    }
+}
+static void drawSkinnedPalm(const std::vector<HandJoint>& joints) {
+    Vec3 wrist = joints[0].position;
+    Vec3 thumbBase = joints[1].position;
+    Vec3 indexBase = joints[5].position;
+    Vec3 middleBase = joints[9].position;
+    Vec3 ringBase = joints[13].position;
+    Vec3 pinkyBase = joints[17].position;
+    Vec3 palmVerts[] = {
+        {wrist.x - 0.5f, wrist.y, wrist.z - 0.1f},
+        {wrist.x + 0.5f, wrist.y, wrist.z - 0.1f},
+        {pinkyBase.x - 0.05f, pinkyBase.y + 0.05f, pinkyBase.z - 0.4f},
+        {ringBase.x - 0.05f, ringBase.y + 0.08f, ringBase.z - 0.4f},
+        {middleBase.x - 0.05f, middleBase.y + 0.1f, middleBase.z - 0.4f},
+        {indexBase.x - 0.05f, indexBase.y + 0.08f, indexBase.z - 0.4f},
+        {thumbBase.x - 0.1f, thumbBase.y + 0.0f, thumbBase.z - 0.3f}
+    };
+
+    glBegin(GL_TRIANGLE_FAN);
+    glNormal3f(0, 1, 0.2f);
+    glVertex3f(wrist.x, wrist.y + 0.1f, wrist.z + 0.2f);
+    for (int i = 0; i < 7; ++i) { glVertex3f(palmVerts[i].x, palmVerts[i].y, palmVerts[i].z); }
+    glVertex3f(palmVerts[0].x, palmVerts[0].y, palmVerts[0].z);
+    glEnd();
+
+    glBegin(GL_TRIANGLE_FAN);
+    glNormal3f(0, -1, -0.2f);
+    glVertex3f(wrist.x, wrist.y - 0.3f, wrist.z);
+    glVertex3f(palmVerts[0].x, palmVerts[0].y - 0.4f, palmVerts[0].z);
+    for (int i = 6; i >= 0; --i) { glVertex3f(palmVerts[i].x, palmVerts[i].y - 0.4f, palmVerts[i].z); }
+    glEnd();
+}
+static void drawLowPolyFinger(const std::vector<HandJoint>& joints, int mcp, int pip, int dip, int tip) {
+    drawAnatomicalArmSegment(joints[mcp].position, joints[pip].position, 0.18, 0.18, 0.18, 0.18);
+    drawAnatomicalArmSegment(joints[pip].position, joints[dip].position, 0.15, 0.15, 0.15, 0.15);
+    drawAnatomicalArmSegment(joints[dip].position, joints[tip].position, 0.12, 0.12, 0.12, 0.12);
+}
+static void drawLowPolyThumb(const std::vector<HandJoint>& joints) {
+    drawAnatomicalArmSegment(joints[1].position, joints[2].position, 0.20, 0.20, 0.20, 0.20);
+    drawAnatomicalArmSegment(joints[2].position, joints[3].position, 0.17, 0.17, 0.17, 0.17);
+    drawAnatomicalArmSegment(joints[3].position, joints[4].position, 0.14, 0.14, 0.14, 0.14);
+}
+void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
+    glColor3f(0.85f, 0.64f, 0.52f);
+
+    // --- Draw Left Arm ---
+    glPushMatrix();
+    glTranslatef(-R16 - 0.2f, Y16, 0.5f);
+    glRotatef(-45.0f, 0.0f, 1.0f, 0.0f);
+    glRotatef(15.0f, 1.0f, 0.0f, 0.0f);
+    glRotatef(leftArmAngle, 1.0f, 0.0f, 0.0f);
+
+    // Draw the arm with ARM_SCALE
+    glPushMatrix();
+    glScalef(ARM_SCALE, ARM_SCALE, ARM_SCALE);
+    drawLowPolyArm(g_ArmJoints);
+    glPopMatrix();
+
+    // Move to the wrist position, taking ARM_SCALE into account
+    Vec3 leftWristPos = g_ArmJoints.back().position;
+    glTranslatef(leftWristPos.x * ARM_SCALE, leftWristPos.y * ARM_SCALE, leftWristPos.z * ARM_SCALE);
+
+    // Draw the hand with HAND_SCALE
+    glPushMatrix();
+    glScalef(HAND_SCALE, HAND_SCALE, HAND_SCALE);
+    drawSkinnedPalm(g_HandJoints);
+    drawLowPolyThumb(g_HandJoints);
+    drawLowPolyFinger(g_HandJoints, 5, 6, 7, 8);
+    drawLowPolyFinger(g_HandJoints, 9, 10, 11, 12);
+    drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
+    drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
+    glPopMatrix();
+
+    glPopMatrix();
+
+    // --- Draw Right Arm ---
+    glPushMatrix();
+    glTranslatef(R16 + 0.2f, Y16, 0.5f);
+    glRotatef(45.0f, 0.0f, 1.0f, 0.0f);
+    glRotatef(15.0f, 1.0f, 0.0f, 0.0f);
+    glRotatef(rightArmAngle, 1.0f, 0.0f, 0.0f);
+
+    // Draw the arm with ARM_SCALE
+    glPushMatrix();
+    glScalef(ARM_SCALE, ARM_SCALE, ARM_SCALE);
+    drawLowPolyArm(g_ArmJoints2);
+    glPopMatrix();
+
+    // Move to the wrist position, taking ARM_SCALE into account
+    Vec3 rightWristPos = g_ArmJoints2.back().position;
+    glTranslatef(rightWristPos.x * ARM_SCALE, rightWristPos.y * ARM_SCALE, rightWristPos.z * ARM_SCALE);
+
+    // Draw the hand with HAND_SCALE
+    glPushMatrix();
+    glScalef(HAND_SCALE, HAND_SCALE, HAND_SCALE);
+    drawSkinnedPalm(g_HandJoints2);
+    drawLowPolyThumb(g_HandJoints2);
+    drawLowPolyFinger(g_HandJoints2, 5, 6, 7, 8);
+    drawLowPolyFinger(g_HandJoints2, 9, 10, 11, 12);
+    drawLowPolyFinger(g_HandJoints2, 13, 14, 15, 16);
+    drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
+    glPopMatrix();
+
+    glPopMatrix();
+}
+// --- Main Character Drawing ---
+void drawBodyAndHead(float leftLegAngle, float rightLegAngle) {
+    glPushMatrix();
+    glTranslatef(0.0f, 8.2f * LEG_SCALE, 0.0f);
+    glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
+    glRotatef(g_pose.torsoYaw, 0, 1, 0); glRotatef(g_pose.torsoPitch, 1, 0, 0); glRotatef(g_pose.torsoRoll, 0, 0, 1);
+
+    drawArmsAndHands(-leftLegAngle, -rightLegAngle);
+    drawTorso();
+    drawSkirt(leftLegAngle, rightLegAngle);
+
+    glDisable(GL_LIGHTING); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glPushMatrix();
+    glTranslatef(0, HEAD_CENTER_Y, 0);
+    glRotatef(g_pose.headYaw, 0, 1, 0); glRotatef(g_pose.headPitch, 1, 0, 0); glRotatef(g_pose.headRoll, 0, 0, 1);
+    glTranslatef(0, -HEAD_CENTER_Y, 0);
+    drawFaceFeatures();
+    glPopMatrix();
+    glEnable(GL_LIGHTING);
+    glPopMatrix();
+}
+
+void display() {
+    glClearColor(0.6f, 0.3f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
+    glMatrixMode(GL_PROJECTION); glLoadIdentity();
+    gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
 
-    // ---- Camera transforms (orbit viewer) ----
-    glTranslatef(g_PanX, g_PanY, 0.0f);         // W/S/A/D pan
-    glTranslatef(0.0f, 0.0f, -g_CamDist);       // wheel zoom
-    glRotatef(g_OrbitPitchDeg, 1, 0, 0);          // mouse drag
-    glRotatef(g_OrbitYawDeg, 0, 1, 0);
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    Vec3 eye; { eye.x = gTarget.x + gDist * cos(gPitch) * sin(gYaw); eye.y = gTarget.y + gDist * sin(gPitch); eye.z = gTarget.z + gDist * cos(gPitch) * cos(gYaw); }
+    gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
 
-    // ---- Character (world-space) transform ----
+    glPolygonMode(GL_FRONT_AND_BACK, gShowWireframe ? GL_LINE : GL_FILL);
+
+    glEnable(GL_LIGHTING); glEnable(GL_LIGHT0); glEnable(GL_COLOR_MATERIAL);
+    float lightPos[] = { 20.f,20.f,30.f,1.f }; float ambientLight[] = { 0.4f,0.4f,0.4f,1.f }; float diffuseLight[] = { 0.7f,0.7f,0.7f,1.f };
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos); glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight); glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
+
     glPushMatrix();
-    glTranslatef(g_CharPosX, 0.0f, g_CharPosZ);  // ←↑→↓ walk in X/Z
-    glRotatef(g_HeadingDeg, 0, 1, 0);             // 面朝前进方向
+    glTranslatef(gCharacterPos.x, gCharacterPos.y, gCharacterPos.z);
+    glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
-    // ---- Model local transforms ----
-    glScalef(g_Scale, g_Scale, g_Scale);
-    glTranslatef(-g_Model.centroid.x, -g_Model.centroid.y, -g_Model.centroid.z);
-
-    // Build exclusion set: head (draw later), shoes (if OFF), legs (重绘)
-    std::unordered_set<int> excluded;
-    if (g_HeadGroupId >= 0) excluded.insert(g_HeadGroupId);
-    if (!g_ShoesOn) {
-        for (int gid : g_ShoeGroupIds) excluded.insert(gid);
+    float legSwing = 0.0f;
+    float animSpeed = keyShift ? 1.8f : 1.0f;
+    if (abs(gMoveSpeed) > 0.1f) {
+        legSwing = 25.0f * sin(gWalkPhase * animSpeed);
     }
-    auto addAll = [&](const std::vector<int>& v) { for (int id : v) excluded.insert(id); };
-    addAll(g_LeftLeg.thigh.groups); addAll(g_LeftLeg.calf.groups);
-    addAll(g_LeftLeg.foot.groups); addAll(g_LeftLeg.toe.groups);
-    addAll(g_RightLeg.thigh.groups); addAll(g_RightLeg.calf.groups);
-    addAll(g_RightLeg.foot.groups); addAll(g_RightLeg.toe.groups);
+    float leftLegSwing = -legSwing;
+    float rightLegSwing = legSwing;
 
-    // Draw body (without head, without legs, and without shoes if toggled off)
-    drawMeshExcludingGroups(g_Model, excluded);
+    glPushMatrix(); glTranslatef(-0.4f, 0, 0); drawLeg(false, leftLegSwing); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.4f, 0, 0); drawLeg(true, rightLegSwing); glPopMatrix();
+    drawBodyAndHead(leftLegSwing, rightLegSwing);
 
-    // ---- 计算步态角度（更明显） ----
-    float blend = g_WalkBlend; // 0..1
-    const float hipAmp = 30.0f * blend;   // 髋
-    const float kneeAmp = 45.0f * blend;   // 膝
-    const float ankleAmp = 20.0f * blend;   // 踝
-    const float toeAmp = 15.0f * blend;   // 趾
-    const float liftAmp = 0.06f * blend;   // 抬脚高度（按模型尺寸可调）
-
-    float phaseL = g_WalkPhase;
-    float phaseR = g_WalkPhase + kPI;
-
-    float hipL = hipAmp * std::sin(phaseL);
-    float hipR = hipAmp * std::sin(phaseR);
-
-    auto kneeFromPhase = [&](float ph) {
-        float s = std::sin(ph);
-        return (s > 0.0f) ? (kneeAmp * s) : 0.0f;
-    };
-    float kneeL = kneeFromPhase(phaseL);
-    float kneeR = kneeFromPhase(phaseR);
-
-    auto ankleFromPhase = [&](float ph, float kneeDeg) {
-        return -0.5f * kneeDeg + ankleAmp * std::sin(ph + 0.35f);
-    };
-    float ankleL = ankleFromPhase(phaseL, kneeL);
-    float ankleR = ankleFromPhase(phaseR, kneeR);
-
-    auto toeFromPhase = [&](float ph) {
-        float s = std::sin(ph);
-        return (s > 0.0f) ? (toeAmp * s * 0.6f) : 0.0f;
-    };
-    float toeL = toeFromPhase(phaseL);
-    float toeR = toeFromPhase(phaseR);
-
-    auto liftFromPhase = [&](float ph) {
-        float s = std::sin(ph);
-        if (s > 0.0f) return liftAmp * (s * s); // 平滑上抬
-        return 0.0f;
-    };
-    float liftL = liftFromPhase(phaseL);
-    float liftR = liftFromPhase(phaseR);
-
-    // ---- Draw legs with joint rotations + 抬脚 ----
-    std::unordered_set<int> shoeSkip;
-    if (!g_ShoesOn) for (int gid : g_ShoeGroupIds) shoeSkip.insert(gid);
-
-    drawLegChain(g_LeftLeg, hipL, kneeL, ankleL, toeL, liftL, shoeSkip);
-    drawLegChain(g_RightLeg, hipR, kneeR, ankleR, toeR, liftR, shoeSkip);
-
-    // ---- Draw rotating head last ----
-    if (g_HeadGroupId >= 0) {
-        glPushMatrix();
-        glTranslatef(g_HeadPivot.x, g_HeadPivot.y, g_HeadPivot.z);
-        glRotatef(g_FaceYawDeg, 0, 1, 0);
-        glRotatef(g_FacePitchDeg, 1, 0, 0);
-        glRotatef(g_FaceRollDeg, 0, 0, 1);
-        glTranslatef(-g_HeadPivot.x, -g_HeadPivot.y, -g_HeadPivot.z);
-
-        std::vector<int> headOnly{g_HeadGroupId};
-        std::unordered_set<int> noSkip;
-        drawGroups(g_Model, headOnly, noSkip);
-        glPopMatrix();
-    }
     glPopMatrix();
 }
-// =============================================================
 
-// ========================= Controls ===========================
-static void ResetAll() {
-    g_OrbitYawDeg = 0.0f;
-    g_OrbitPitchDeg = 15.0f;
-    g_PanX = g_PanY = 0.0f;
-    g_CamDist = g_CamDistDefault;
+// ===================================================================
+//
+// SECTION 4: WIN32 APPLICATION FRAMEWORK
+//
+// ===================================================================
 
-    g_FaceYawDeg = g_FacePitchDeg = g_FaceRollDeg = 0.0f;
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
+    WNDCLASSEX wc{}; wc.cbSize = sizeof(WNDCLASSEX); wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC; wc.lpfnWndProc = WindowProcedure; wc.hInstance = GetModuleHandle(NULL); wc.lpszClassName = WINDOW_TITLE;
+    if (!RegisterClassEx(&wc))return 0;
+    HWND hWnd = CreateWindow(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight, NULL, NULL, wc.hInstance, NULL);
+    if (!hWnd)return 0;
+    HDC hdc = GetDC(hWnd);
+    { PIXELFORMATDESCRIPTOR pfd{}; pfd.nSize = sizeof(pfd); pfd.nVersion = 1; pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER; pfd.iPixelType = PFD_TYPE_RGBA; pfd.cColorBits = 32; pfd.cDepthBits = 24; pfd.iLayerType = PFD_MAIN_PLANE; int pf = ChoosePixelFormat(hdc, &pfd); SetPixelFormat(hdc, pf, &pfd); }
+    HGLRC rc = wglCreateContext(hdc); wglMakeCurrent(hdc, rc);
+    ShowWindow(hWnd, nCmdShow); UpdateWindow(hWnd);
 
-    g_CharPosX = g_CharPosZ = 0.0f;
-    g_HeadingDeg = 0.0f;
+    glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
+    initializeCharacterParts();
+    g_headQuadric = gluNewQuadric(); if (g_headQuadric)gluQuadricNormals(g_headQuadric, GLU_SMOOTH); if (g_headQuadric)gluQuadricDrawStyle(g_headQuadric, gShowWireframe ? GLU_LINE : GLU_FILL);
+    QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
 
-    g_WalkPhase = 0.0f;
-    g_WalkBlend = 0.0f;
-    g_KeyLeft = g_KeyRight = g_KeyUp = g_KeyDown = false;
-}
+    MSG msg{};
+    while (gRunning) {
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) { if (msg.message == WM_QUIT)gRunning = false; TranslateMessage(&msg); DispatchMessage(&msg); }
+        LARGE_INTEGER now; QueryPerformanceCounter(&now); float dt = float(now.QuadPart - gPrev.QuadPart) / float(gFreq.QuadPart); gPrev = now;
+        if (dt > 0.1f) dt = 0.1f;
 
-static void OnMouseDragOrbit(int x, int y) {
-    const float sens = 0.3f; // degrees per pixel
-    int dx = x - g_LastMouseX;
-    int dy = y - g_LastMouseY;
-    g_LastMouseX = x; g_LastMouseY = y;
+        updateCharacter(dt);
 
-    g_OrbitYawDeg += dx * sens;
-    g_OrbitPitchDeg += dy * sens;
-    if (g_OrbitPitchDeg > 89.0f) g_OrbitPitchDeg = 89.0f;
-    if (g_OrbitPitchDeg < -89.0f) g_OrbitPitchDeg = -89.0f;
-}
-
-static void OnMouseWheel(short delta) {
-    if (delta > 0) g_CamDist *= 0.9f; else g_CamDist *= 1.1f;
-    if (g_CamDist < 0.5f) g_CamDist = 0.5f;
-    if (g_CamDist > 200.0f) g_CamDist = 200.0f;
-}
-
-static void OnPanKey(WORD key) {
-    const float step = 0.1f; // screen-space pan
-    if (key == 'W') g_PanY += step;
-    if (key == 'S') g_PanY -= step;
-    if (key == 'A') g_PanX -= step;
-    if (key == 'D') g_PanX += step;
-}
-
-static void UpdateWalkingAndAnimation() {
-    const float dt = 1.0f / 60.0f;
-
-    // 移动方向（基于按键）
-    float dx = (g_KeyRight ? 1.0f : 0.0f) + (g_KeyLeft ? -1.0f : 0.0f);
-    float dz = (g_KeyUp ? 1.0f : 0.0f) + (g_KeyDown ? -1.0f : 0.0f);
-    float len = std::sqrt(dx * dx + dz * dz);
-    if (len > 0.0f) { dx /= len; dz /= len; }
-
-    // 世界移动
-    const float moveSpeed = 1.2f; // units/sec
-    g_CharPosX += dx * moveSpeed * dt;
-    g_CharPosZ += dz * moveSpeed * dt;
-
-    // 面朝移动方向：heading = atan2(dx, dz)（+Z 为正前）
-    if (len > 0.0f) {
-        float targetHeadingDeg = std::atan2(dx, dz) * (180.0f / kPI);
-        float s = 12.0f * dt; // 转身速度
-        float diff = targetHeadingDeg - g_HeadingDeg;
-        while (diff > 180.0f) diff -= 360.0f;
-        while (diff < -180.0f) diff += 360.0f;
-        g_HeadingDeg += diff * s;
+        { Vec3 eye; {eye.x = gTarget.x + gDist * cos(gPitch) * sin(gYaw); eye.y = gTarget.y + gDist * sin(gPitch); eye.z = gTarget.z + gDist * cos(gPitch) * cos(gYaw); } Vec3 f = { gTarget.x - eye.x,gTarget.y - eye.y,gTarget.z - eye.z }; float fl = sqrt(f.x * f.x + f.y * f.y + f.z * f.z); if (fl > 1e-6) { f.x /= fl; f.y /= fl; f.z /= fl; } Vec3 r = { f.z,0,-f.x }; float moveStep = gDist * 0.8f * dt; if (keyW)gTarget.y += moveStep; if (keyS)gTarget.y -= moveStep; if (keyA) { gTarget.x -= r.x * moveStep; gTarget.z -= r.z * moveStep; }if (keyD) { gTarget.x += r.x * moveStep; gTarget.z += r.z * moveStep; } }
+        display(); SwapBuffers(hdc);
     }
 
-    // 步频随速度变化
-    float speedScalar = len;                    // 0..1
-    float cadenceHz = 1.9f + 0.7f * speedScalar; // ~1.9–2.6 步/秒
-    float phaseRate = kTAU * cadenceHz;        // rad/sec
-
-    if (len > 0.0f) {
-        g_WalkPhase = std::fmod(g_WalkPhase + phaseRate * dt, kTAU);
-        g_WalkBlend += 3.0f * dt; if (g_WalkBlend > 1.0f) g_WalkBlend = 1.0f;
-    }
-    else {
-        g_WalkBlend -= 3.0f * dt; if (g_WalkBlend < 0.0f) g_WalkBlend = 0.0f;
-    }
-
-    InvalidateRect(g_hWnd, nullptr, FALSE);
+    if (g_headQuadric) { gluDeleteQuadric(g_headQuadric); g_headQuadric = nullptr; } wglMakeCurrent(NULL, NULL); wglDeleteContext(rc); ReleaseDC(hWnd, hdc); UnregisterClass(WINDOW_TITLE, wc.hInstance);
+    return 0;
 }
-// =============================================================
 
-// ======================= Win32 plumbing =======================
-static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+void updateCharacter(float dt) {
+    float targetSpeed = 0.0f;
+    if (keyUp) { targetSpeed = keyShift ? RUN_SPEED : WALK_SPEED; }
+    if (keydown) { targetSpeed = -(keyShift ? RUN_SPEED : WALK_SPEED); }
+    gMoveSpeed = targetSpeed;
+    if (keyLeft) { gCharacterYaw += TURN_SPEED * dt; }
+    if (keyRight) { gCharacterYaw -= TURN_SPEED * dt; }
+    if (abs(gMoveSpeed) > 0.01f) {
+        float angleRad = gCharacterYaw * PI / 180.0f;
+        gCharacterPos.x -= sin(angleRad) * gMoveSpeed * dt;
+        gCharacterPos.z -= cos(angleRad) * gMoveSpeed * dt;
+        float phaseSpeed = keyShift ? 10.0f : 5.0f;
+        gWalkPhase += gMoveSpeed * dt * phaseSpeed / (keyShift ? 2.5f : 2.0f);
+    }
+}
+
+LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
-    case WM_CREATE:
-        g_hDC = GetDC(hWnd);
-        if (!initPixelFormat(g_hDC)) return -1;
-        g_hRC = wglCreateContext(g_hDC);
-        if (!g_hRC) return -1;
-        if (!wglMakeCurrent(g_hDC, g_hRC)) return -1;
-        initGL();
-
-        // Load model
-        g_ModelLoaded = loadOBJ(kModelPath, g_Model);
-        if (g_ModelLoaded) {
-            chooseHeadGroupAndPivot();
-            chooseShoeGroups();
-            detectLegChainOneSide(true, g_LeftLeg);
-            detectLegChainOneSide(false, g_RightLeg);
-            calcAutoScaleAndCam();
-            ResetAll();
-        }
-        // 60Hz timer for animation & movement
-        SetTimer(hWnd, 1, 16, nullptr);
-        return 0;
-
-    case WM_SIZE:
-        resizeGL(LOWORD(lParam), HIWORD(lParam));
-        return 0;
-
-    case WM_TIMER:
-        if (wParam == 1) {
-            UpdateWalkingAndAnimation();
-        }
-        return 0;
-
-    case WM_LBUTTONDOWN:
-        g_LButtonDown = true;
-        g_LastMouseX = GET_X_LPARAM(lParam);
-        g_LastMouseY = GET_Y_LPARAM(lParam);
-        SetCapture(hWnd);
-        return 0;
-
-    case WM_LBUTTONUP:
-        g_LButtonDown = false;
-        ReleaseCapture();
-        return 0;
-
-    case WM_MOUSEMOVE:
-        if (g_LButtonDown) {
-            OnMouseDragOrbit(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-            InvalidateRect(hWnd, nullptr, FALSE);
-        }
-        return 0;
-
-    case WM_MOUSEWHEEL:
-        OnMouseWheel((short)GET_WHEEL_DELTA_WPARAM(wParam));
-        InvalidateRect(hWnd, nullptr, FALSE);
-        return 0;
-
+    case WM_DESTROY: PostQuitMessage(0); return 0;
+    case WM_SIZE: gWidth = LOWORD(lParam); gHeight = HIWORD(lParam); if (gWidth <= 0)gWidth = 1; if (gHeight <= 0)gHeight = 1; glViewport(0, 0, gWidth, gHeight); return 0;
+    case WM_LBUTTONDOWN: gLMBDown = true; SetCapture(hWnd); gLastMouse.x = LOWORD(lParam); gLastMouse.y = HIWORD(lParam); return 0;
+    case WM_LBUTTONUP: gLMBDown = false; ReleaseCapture(); return 0;
+    case WM_MOUSEMOVE: if (gLMBDown) { int mx = LOWORD(lParam), my = HIWORD(lParam); int dx = mx - gLastMouse.x, dy = my - gLastMouse.y; gLastMouse.x = mx; gLastMouse.y = my; gYaw += dx * 0.005f; gPitch -= dy * 0.005f; if (gPitch > 1.55f)gPitch = 1.55f; if (gPitch < -1.55f)gPitch = -1.55f; } return 0;
+    case WM_MOUSEWHEEL: {short delta = GET_WHEEL_DELTA_WPARAM(wParam); gDist *= (1.0f - (delta / 120.0f) * 0.1f); if (gDist < 2.0f)gDist = 2.0f; if (gDist > 100.0f)gDist = 100.0f; } return 0;
     case WM_KEYDOWN:
-        switch (wParam) {
-            // Camera pan
-        case 'W': case 'S': case 'A': case 'D':
-            OnPanKey(WORD(wParam));
-            InvalidateRect(hWnd, nullptr, FALSE);
-            break;
-
-            // Walk (world movement) — key states
-        case VK_LEFT:  g_KeyLeft = true;  break;
-        case VK_RIGHT: g_KeyRight = true;  break;
-        case VK_UP:    g_KeyUp = true;  break;
-        case VK_DOWN:  g_KeyDown = true;  break;
-
-            // Face rotation (optional)
-        case 'J': g_FaceYawDeg -= 5.0f; InvalidateRect(hWnd, nullptr, FALSE); break;
-        case 'K': g_FaceYawDeg += 5.0f; InvalidateRect(hWnd, nullptr, FALSE); break;
-        case 'I': g_FacePitchDeg += 5.0f; InvalidateRect(hWnd, nullptr, FALSE); break;
-        case 'M': g_FacePitchDeg -= 5.0f; InvalidateRect(hWnd, nullptr, FALSE); break;
-        case 'U': g_FaceRollDeg -= 5.0f; InvalidateRect(hWnd, nullptr, FALSE); break;
-        case 'O': g_FaceRollDeg += 5.0f; InvalidateRect(hWnd, nullptr, FALSE); break;
-
-            // Wireframe/Fill
-        case VK_F1:
-            g_Wireframe = !g_Wireframe;
-            applyPolygonMode();
-            InvalidateRect(hWnd, nullptr, FALSE);
-            break;
-
-            // Shoes toggle (Q)
-        case 'Q':
-            if (!g_ShoeGroupIds.empty()) {
-                g_ShoesOn = !g_ShoesOn;
-                InvalidateRect(hWnd, nullptr, FALSE);
-            }
-            break;
-
-            // Reset
-        case 'R':
-            ResetAll();
-            InvalidateRect(hWnd, nullptr, FALSE);
-            break;
-
-            // Exit
-        case VK_ESCAPE:
-            PostQuitMessage(0);
-            break;
-
-        default: break;
-        }
+        if (wParam == VK_ESCAPE)PostQuitMessage(0);
+        else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; gTarget = { 0.0f,3.5f,0.0f }; gCharacterPos = { 0,0,0 }; gCharacterYaw = 0; }
+        else if (wParam == '1') { gShowWireframe = !gShowWireframe; if (g_headQuadric)gluQuadricDrawStyle(g_headQuadric, gShowWireframe ? GLU_LINE : GLU_FILL); }
+        else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
+        else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
+        else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
+        else if (wParam == VK_LEFT) keyLeft = true; else if (wParam == VK_RIGHT) keyRight = true;
+        else if (wParam == VK_SHIFT) keyShift = true;
         return 0;
-
     case WM_KEYUP:
-        switch (wParam) {
-        case VK_LEFT:  g_KeyLeft = false; break;
-        case VK_RIGHT: g_KeyRight = false; break;
-        case VK_UP:    g_KeyUp = false; break;
-        case VK_DOWN:  g_KeyDown = false; break;
-        default: break;
-        }
+        if (wParam == 'W') keyW = false; else if (wParam == 'S') keyS = false;
+        else if (wParam == 'A') keyA = false; else if (wParam == 'D') keyD = false;
+        else if (wParam == VK_UP) keyUp = false; else if (wParam == VK_DOWN) keydown = false;
+        else if (wParam == VK_LEFT) keyLeft = false; else if (wParam == VK_RIGHT) keyRight = false;
+        else if (wParam == VK_SHIFT) keyShift = false;
         return 0;
-
-    case WM_PAINT: {
-        PAINTSTRUCT ps; BeginPaint(hWnd, &ps);
-        if (g_ModelLoaded) renderScene();
-        SwapBuffers(g_hDC);
-        EndPaint(hWnd, &ps);
-        return 0;
+    default: return DefWindowProc(hWnd, msg, wParam, lParam);
     }
-
-    case WM_DESTROY:
-        KillTimer(hWnd, 1);
-        if (g_hRC) { wglMakeCurrent(nullptr, nullptr); wglDeleteContext(g_hRC); g_hRC = nullptr; }
-        if (g_hDC) { ReleaseDC(hWnd, g_hDC); g_hDC = nullptr; }
-        PostQuitMessage(0);
-        return 0;
-
-    default: break;
-    }
-    return DefWindowProc(hWnd, msg, wParam, lParam);
-}
-
-int APIENTRY WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
-    WNDCLASS wc = {};
-    wc.style = CS_OWNDC;
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInst;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = "MulanWin32GL_WalkingLegs";
-    RegisterClass(&wc);
-
-    RECT r = { 0,0,1280,720 };
-    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-
-    HWND hWnd = CreateWindow(
-        wc.lpszClassName, kWindowTitle,
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        r.right - r.left, r.bottom - r.top,
-        nullptr, nullptr, hInst, nullptr);
-
-    g_hWnd = hWnd;
-
-    ShowWindow(hWnd, nCmdShow);
-    UpdateWindow(hWnd);
-
-    MSG msg;
-    while (GetMessage(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-    return (int)msg.wParam;
 }

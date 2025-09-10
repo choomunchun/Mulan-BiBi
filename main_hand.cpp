@@ -127,9 +127,11 @@ int   g_LastMouseX = 0, g_LastMouseY = 0;
 
 // Hand data - 21 joints as shown in the diagram
 std::vector<HandJoint> g_HandJoints;
+std::vector<HandJoint> g_HandJoints2; // Second hand
 
 // Arm data - 4 joints for low-poly arm (shoulder, elbow, wrist connection)
 std::vector<ArmJoint> g_ArmJoints;
+std::vector<ArmJoint> g_ArmJoints2; // Second arm
 // =============================================================
 
 // ========================= Math utils =========================
@@ -187,6 +189,49 @@ static void InitializeHand() {
     g_HandJoints[20] = {{-0.5f, 0.0f, 1.8f}, 19};  // PINKY_TIP
 }
 
+// Initialize second hand (mirrored and positioned to the right)
+static void InitializeHand2() {
+    g_HandJoints2.clear();
+    g_HandJoints2.resize(21);
+    
+    // Offset the second hand to the right and flip it horizontally
+    float xOffset = 4.0f; // Position to the right of first hand
+    float flipSign = -1.0f; // Flip X coordinates to mirror the hand
+    
+    // WRIST (0) - base of the cube
+    g_HandJoints2[0] = {{xOffset + 0.0f * flipSign, 0.0f, 0.0f}, -1};
+    
+    // THUMB chain (1-4) - mirrored to opposite side
+    g_HandJoints2[1] = {{xOffset + 0.6f * flipSign, -0.1f, 0.4f}, 0};   // THUMB_CMC
+    g_HandJoints2[2] = {{xOffset + 0.9f * flipSign, 0.0f, 0.7f}, 1};    // THUMB_MCP
+    g_HandJoints2[3] = {{xOffset + 1.1f * flipSign, 0.1f, 0.9f}, 2};    // THUMB_IP
+    g_HandJoints2[4] = {{xOffset + 1.2f * flipSign, 0.2f, 1.1f}, 3};    // THUMB_TIP
+    
+    // INDEX FINGER chain (5-8) - mirrored
+    g_HandJoints2[5] = {{xOffset + 0.3f * flipSign, 0.1f, 1.0f}, 0};    // INDEX_FINGER_MCP
+    g_HandJoints2[6] = {{xOffset + 0.3f * flipSign, 0.0f, 1.6f}, 5};    // INDEX_FINGER_PIP
+    g_HandJoints2[7] = {{xOffset + 0.3f * flipSign, 0.0f, 2.0f}, 6};    // INDEX_FINGER_DIP
+    g_HandJoints2[8] = {{xOffset + 0.3f * flipSign, 0.0f, 2.3f}, 7};    // INDEX_FINGER_TIP
+    
+    // MIDDLE FINGER chain (9-12) - mirrored
+    g_HandJoints2[9] = {{xOffset + 0.0f * flipSign, 0.1f, 1.1f}, 0};    // MIDDLE_FINGER_MCP
+    g_HandJoints2[10] = {{xOffset + 0.0f * flipSign, 0.0f, 1.8f}, 9};   // MIDDLE_FINGER_PIP
+    g_HandJoints2[11] = {{xOffset + 0.0f * flipSign, 0.0f, 2.3f}, 10};  // MIDDLE_FINGER_DIP
+    g_HandJoints2[12] = {{xOffset + 0.0f * flipSign, 0.0f, 2.6f}, 11};  // MIDDLE_FINGER_TIP
+    
+    // RING FINGER chain (13-16) - mirrored
+    g_HandJoints2[13] = {{xOffset + -0.3f * flipSign, 0.1f, 1.0f}, 0};  // RING_FINGER_MCP
+    g_HandJoints2[14] = {{xOffset + -0.3f * flipSign, 0.0f, 1.7f}, 13}; // RING_FINGER_PIP
+    g_HandJoints2[15] = {{xOffset + -0.3f * flipSign, 0.0f, 2.1f}, 14}; // RING_FINGER_DIP
+    g_HandJoints2[16] = {{xOffset + -0.3f * flipSign, 0.0f, 2.4f}, 15}; // RING_FINGER_TIP
+    
+    // PINKY chain (17-20) - mirrored
+    g_HandJoints2[17] = {{xOffset + -0.5f * flipSign, 0.05f, 0.8f}, 0};  // PINKY_MCP
+    g_HandJoints2[18] = {{xOffset + -0.5f * flipSign, 0.0f, 1.3f}, 17};  // PINKY_PIP
+    g_HandJoints2[19] = {{xOffset + -0.5f * flipSign, 0.0f, 1.6f}, 18};  // PINKY_DIP
+    g_HandJoints2[20] = {{xOffset + -0.5f * flipSign, 0.0f, 1.8f}, 19};  // PINKY_TIP
+}
+
 // ====================== Arm Creation ======================
 static void InitializeArm() {
     g_ArmJoints.clear();
@@ -213,6 +258,34 @@ static void InitializeArm() {
     
     // ARM_SHOULDER (5) - based on Bip001_L_Clavicle_036 connection
     g_ArmJoints[5] = {{0.28f, 0.35f, -12.0f}, 4};  // Shoulder connection with natural rise
+}
+
+// Initialize second arm (mirrored and positioned for the second hand)
+static void InitializeArm2() {
+    g_ArmJoints2.clear();
+    g_ArmJoints2.resize(6);  // 6 joints to match Mulan OBJ anatomy structure
+    
+    // Mirror the arm to match the second hand position
+    float xOffset = 4.0f; // Position to match second hand
+    float flipSign = -1.0f; // Flip X coordinates to mirror the arm
+    
+    // ARM_WRIST (0) - attachment point to second hand wrist
+    g_ArmJoints2[0] = {{xOffset + 0.0f * flipSign, 0.0f, -0.1f}, -1};    // Connection point
+    
+    // ARM_LOWER_FOREARM (1) - mirrored
+    g_ArmJoints2[1] = {{xOffset + 0.15f * flipSign, 0.08f, -2.0f}, 0};   
+    
+    // ARM_MID_FOREARM (2) - mirrored
+    g_ArmJoints2[2] = {{xOffset + 0.25f * flipSign, 0.12f, -4.2f}, 1};   
+    
+    // ARM_ELBOW (3) - mirrored
+    g_ArmJoints2[3] = {{xOffset + 0.30f * flipSign, 0.15f, -6.8f}, 2};   
+    
+    // ARM_UPPER_ARM (4) - mirrored
+    g_ArmJoints2[4] = {{xOffset + 0.35f * flipSign, 0.20f, -9.5f}, 3};   
+    
+    // ARM_SHOULDER (5) - mirrored
+    g_ArmJoints2[5] = {{xOffset + 0.28f * flipSign, 0.35f, -12.0f}, 4};  
 }
 // =============================================================
 
@@ -595,7 +668,7 @@ static void drawLowPolyFingerSegment(const Vec3& start, const Vec3& end, float r
     glPopMatrix();
 }
 
-// Draw a complete low-poly finger with fingertip
+// Draw a complete low-poly finger with fingertip for hand 1
 static void drawLowPolyFinger(int mcpIdx, int pipIdx, int dipIdx, int tipIdx) {
     if (mcpIdx >= 0 && pipIdx >= 0) {
         // Proximal phalanx (largest segment) - bigger radius
@@ -614,7 +687,26 @@ static void drawLowPolyFinger(int mcpIdx, int pipIdx, int dipIdx, int tipIdx) {
     }
 }
 
-// Draw low-poly thumb with bigger dimensions and fingertip
+// Draw a complete low-poly finger with fingertip for hand 2
+static void drawLowPolyFinger2(int mcpIdx, int pipIdx, int dipIdx, int tipIdx) {
+    if (mcpIdx >= 0 && pipIdx >= 0) {
+        // Proximal phalanx (largest segment) - bigger radius
+        drawLowPolyFingerSegment(g_HandJoints2[mcpIdx].position, g_HandJoints2[pipIdx].position, 0.18f);
+    }
+    if (pipIdx >= 0 && dipIdx >= 0) {
+        // Middle phalanx - bigger radius
+        drawLowPolyFingerSegment(g_HandJoints2[pipIdx].position, g_HandJoints2[dipIdx].position, 0.15f);
+    }
+    if (dipIdx >= 0 && tipIdx >= 0) {
+        // Distal phalanx (smallest segment) - bigger radius
+        drawLowPolyFingerSegment(g_HandJoints2[dipIdx].position, g_HandJoints2[tipIdx].position, 0.12f);
+        
+        // Add fingertip - half sphere at the tip
+        drawFingertip(g_HandJoints2[tipIdx].position, 0.12f);
+    }
+}
+
+// Draw low-poly thumb with bigger dimensions and fingertip for hand 1
 static void drawLowPolyThumb() {
     drawLowPolyFingerSegment(g_HandJoints[1].position, g_HandJoints[2].position, 0.20f); // CMC to MCP - bigger
     drawLowPolyFingerSegment(g_HandJoints[2].position, g_HandJoints[3].position, 0.17f); // MCP to IP - bigger
@@ -622,6 +714,16 @@ static void drawLowPolyThumb() {
     
     // Add thumb tip - half sphere at the thumb tip
     drawFingertip(g_HandJoints[4].position, 0.14f);
+}
+
+// Draw low-poly thumb with bigger dimensions and fingertip for hand 2
+static void drawLowPolyThumb2() {
+    drawLowPolyFingerSegment(g_HandJoints2[1].position, g_HandJoints2[2].position, 0.20f); // CMC to MCP - bigger
+    drawLowPolyFingerSegment(g_HandJoints2[2].position, g_HandJoints2[3].position, 0.17f); // MCP to IP - bigger
+    drawLowPolyFingerSegment(g_HandJoints2[3].position, g_HandJoints2[4].position, 0.14f); // IP to tip - bigger
+    
+    // Add thumb tip - half sphere at the thumb tip
+    drawFingertip(g_HandJoints2[4].position, 0.14f);
 }
 
 // ====================== Arm Drawing Functions ======================
@@ -922,7 +1024,7 @@ static void drawRobotJoint(const Vec3& pos, float size) {
     glPopMatrix();
 }
 
-// Draw complete anatomically complex arm following Mulan OBJ structure - PALM-FITTED WITH TEXTURE
+// Draw complete anatomically complex arm following Mulan OBJ structure - PALM-FITTED WITH TEXTURE for hand 1
 static void drawLowPolyArm() {
     if (g_ArmJoints.empty()) return;
     
@@ -1029,7 +1131,114 @@ static void drawLowPolyArm() {
     glLineWidth(1.0f);
 }
 
-// Draw palm with complete polygonal coverage like a real hand
+// Draw complete anatomically complex arm following Mulan OBJ structure - PALM-FITTED WITH TEXTURE for hand 2
+static void drawLowPolyArm2() {
+    if (g_ArmJoints2.empty()) return;
+    
+    // Enable texturing for the entire arm to match hand
+    if (g_TextureEnabled) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+        glColor3f(1.0f, 1.0f, 1.0f); // White to show texture clearly
+    } else {
+        glDisable(GL_TEXTURE_2D);
+        glColor3f(0.9f, 0.8f, 0.7f); // Skin color for non-textured mode
+    }
+    
+    // Draw arm segments scaled to match palm size for second hand
+    float xOffset = 4.0f; // Match second hand offset
+    
+    // Wrist to lower forearm - matches palm width (1.0f) with natural taper
+    Vec3 wristConnect2 = {xOffset, 0.0f, 0.05f};  // Connection to second hand
+    drawAnatomicalArmSegment(wristConnect2, g_ArmJoints2[1].position, 
+                           0.9f, 0.7f,    // Base: 90% of palm width, 70% height
+                           0.7f,          // Muscle: 70% of palm width
+                           0.5f);         // Bone: 50% of palm width
+    
+    // Lower forearm segment - slightly wider than wrist, proportional to palm
+    Vec3 lowerForearmOverlap2 = {xOffset - 0.12f, 0.06f, -1.9f};  // Natural overlap (mirrored)
+    drawAnatomicalArmSegment(lowerForearmOverlap2, g_ArmJoints2[2].position,
+                           1.0f, 0.8f,    // Same as palm width
+                           0.8f,          // 80% muscle coverage
+                           0.6f);         // 60% bone core
+    
+    // Mid forearm segment - peak forearm, slightly larger than palm
+    Vec3 midForearmOverlap2 = {xOffset - 0.22f, 0.10f, -4.1f};  // Continued curve (mirrored)
+    drawAnatomicalArmSegment(midForearmOverlap2, g_ArmJoints2[3].position,
+                           1.1f, 0.9f,    // 110% of palm for muscle bulk
+                           0.9f,          // Strong forearm muscles
+                           0.65f);        // Substantial bone
+    
+    // Elbow segment - transition joint, similar to palm width
+    Vec3 elbowOverlap2 = {xOffset - 0.28f, 0.13f, -6.7f};  // Natural elbow curve (mirrored)
+    drawAnatomicalArmSegment(elbowOverlap2, g_ArmJoints2[4].position,
+                           1.05f, 0.85f,  // Slightly larger than palm
+                           0.85f,         // Joint muscle support
+                           0.7f);         // Major joint bone
+    
+    // Upper arm segment - larger than palm (natural arm proportions)
+    Vec3 upperArmOverlap2 = {xOffset - 0.32f, 0.18f, -9.4f};  // Upper arm positioning (mirrored)
+    drawAnatomicalArmSegment(upperArmOverlap2, g_ArmJoints2[5].position,
+                           1.3f, 1.0f,    // 130% of palm width (realistic upper arm)
+                           1.1f,          // Major muscle groups (biceps/triceps)
+                           0.8f);         // Humerus bone
+    
+    // Draw palm-proportioned joints with realistic scaling and texture
+    if (g_TextureEnabled) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    } else {
+        glDisable(GL_TEXTURE_2D);
+    }
+    
+    // Joint sizing based on palm proportions (palm = 1.0f reference)
+    for (int joint = 1; joint < 6; joint++) {
+        Vec3 pos = g_ArmJoints2[joint].position;
+        float palmRatio = 0.15f; // 15% of palm width as base joint size
+        
+        // Joint core (bone/cartilage) - proportional to palm
+        if (!g_TextureEnabled) glColor3f(0.8f, 0.8f, 0.8f);
+        drawRobotJoint(pos, palmRatio + joint * 0.02f);
+        
+        // Joint capsule (ligaments/tendons) - slightly larger
+        if (!g_TextureEnabled) glColor3f(0.7f, 0.65f, 0.6f);
+        drawRobotJoint(pos, palmRatio * 1.5f + joint * 0.025f);
+        
+        // Joint housing (external structure) - palm-fitted
+        if (!g_TextureEnabled) glColor3f(0.65f, 0.65f, 0.65f);
+        drawRobotJoint(pos, palmRatio * 2.0f + joint * 0.03f);
+    }
+    
+    // Add anatomical details scaled to palm size with texture
+    if (g_TextureEnabled) {
+        glColor3f(0.8f, 0.8f, 0.8f); // Lighter for textured tendons
+    } else {
+        glColor3f(0.5f, 0.5f, 0.6f); // Tendon/nerve color
+    }
+    glLineWidth(2.0f);
+    glBegin(GL_LINES);
+    
+    // Draw tendon lines proportional to palm width
+    for (int i = 1; i < 5; i++) {
+        Vec3 start = g_ArmJoints2[i].position;
+        Vec3 end = g_ArmJoints2[i + 1].position;
+        
+        // Main tendon line (20% of palm width offset)
+        float tendonOffset = 0.2f; // 20% of palm width
+        glVertex3f(start.x + tendonOffset, start.y, start.z);
+        glVertex3f(end.x + tendonOffset, end.y, end.z);
+        
+        // Secondary tendon line
+        glVertex3f(start.x - tendonOffset, start.y, start.z);
+        glVertex3f(end.x - tendonOffset, end.y, end.z);
+    }
+    
+    glEnd();
+    glLineWidth(1.0f);
+}
+
+// Draw palm with complete polygonal coverage like a real hand for hand 1
 static void drawSkinnedPalm() {
     Vec3 wrist = g_HandJoints[0].position;
     Vec3 thumbBase = g_HandJoints[1].position;
@@ -1626,6 +1835,604 @@ static void drawSkinnedPalm() {
     glEnd();
 }
 
+// Draw palm with complete polygonal coverage like a real hand for hand 2
+static void drawSkinnedPalm2() {
+    Vec3 wrist = g_HandJoints2[0].position;
+    Vec3 thumbBase = g_HandJoints2[1].position;
+    Vec3 indexBase = g_HandJoints2[5].position;
+    Vec3 middleBase = g_HandJoints2[9].position;
+    Vec3 ringBase = g_HandJoints2[13].position;
+    Vec3 pinkyBase = g_HandJoints2[17].position;
+    
+    // COMPREHENSIVE PALM TOPOLOGY - DENSE MESH for complete coverage visualization
+    
+    // Base vertices (wrist area) - wider for natural proportions
+    Vec3 palmBase1 = {wrist.x - 0.5f, wrist.y, wrist.z - 0.1f};    // Pinky side base
+    Vec3 palmBase2 = {wrist.x + 0.5f, wrist.y, wrist.z - 0.1f};    // Thumb side base  
+    Vec3 palmBase3 = {wrist.x - 0.16f, wrist.y, wrist.z - 0.1f};   // Center-left base
+    Vec3 palmBase4 = {wrist.x + 0.16f, wrist.y, wrist.z - 0.1f};   // Center-right base
+    Vec3 palmBase5 = {wrist.x, wrist.y, wrist.z - 0.1f};           // Center base
+    
+    // Lower palm vertices (first elevation) - more subdivisions
+    Vec3 palmLow1 = {wrist.x - 0.45f, wrist.y + 0.12f, wrist.z + 0.15f};  // Pinky side low
+    Vec3 palmLow2 = {wrist.x + 0.45f, wrist.y + 0.12f, wrist.z + 0.15f};  // Thumb side low
+    Vec3 palmLow3 = {wrist.x - 0.25f, wrist.y + 0.12f, wrist.z + 0.15f};  // Left-center low
+    Vec3 palmLow4 = {wrist.x - 0.08f, wrist.y + 0.12f, wrist.z + 0.15f};  // Center-left low
+    Vec3 palmLow5 = {wrist.x + 0.08f, wrist.y + 0.12f, wrist.z + 0.15f};  // Center-right low
+    Vec3 palmLow6 = {wrist.x + 0.25f, wrist.y + 0.12f, wrist.z + 0.15f};  // Right-center low
+    
+    // Middle palm vertices (second elevation) - dense mesh
+    Vec3 palmMid1 = {wrist.x - 0.4f, wrist.y + 0.25f, wrist.z + 0.35f};   // Pinky side mid
+    Vec3 palmMid2 = {wrist.x + 0.4f, wrist.y + 0.25f, wrist.z + 0.35f};   // Thumb side mid
+    Vec3 palmMid3 = {wrist.x - 0.2f, wrist.y + 0.25f, wrist.z + 0.35f};   // Left-center mid
+    Vec3 palmMid4 = {wrist.x - 0.06f, wrist.y + 0.25f, wrist.z + 0.35f};  // Center-left mid
+    Vec3 palmMid5 = {wrist.x + 0.06f, wrist.y + 0.25f, wrist.z + 0.35f};  // Center-right mid
+    Vec3 palmMid6 = {wrist.x + 0.2f, wrist.y + 0.25f, wrist.z + 0.35f};   // Right-center mid
+    
+    // Upper-middle palm vertices (third elevation) - additional layer for density
+    Vec3 palmUpMid1 = {wrist.x - 0.35f, wrist.y + 0.4f, wrist.z + 0.55f};   // Pinky side up-mid
+    Vec3 palmUpMid2 = {wrist.x + 0.35f, wrist.y + 0.4f, wrist.z + 0.55f};   // Thumb side up-mid
+    Vec3 palmUpMid3 = {wrist.x - 0.15f, wrist.y + 0.4f, wrist.z + 0.55f};   // Left-center up-mid
+    Vec3 palmUpMid4 = {wrist.x - 0.05f, wrist.y + 0.4f, wrist.z + 0.55f};   // Center-left up-mid
+    Vec3 palmUpMid5 = {wrist.x + 0.05f, wrist.y + 0.4f, wrist.z + 0.55f};   // Center-right up-mid
+    Vec3 palmUpMid6 = {wrist.x + 0.15f, wrist.y + 0.4f, wrist.z + 0.55f};   // Right-center up-mid
+    
+    // Upper palm vertices (knuckle area) - dense knuckle coverage
+    Vec3 palmHigh1 = {pinkyBase.x - 0.05f, pinkyBase.y + 0.05f, pinkyBase.z - 0.4f};    // Pinky knuckle area
+    Vec3 palmHigh2 = {ringBase.x - 0.05f, ringBase.y + 0.08f, ringBase.z - 0.4f};      // Ring knuckle area
+    Vec3 palmHigh3 = {middleBase.x - 0.05f, middleBase.y + 0.1f, middleBase.z - 0.4f}; // Middle knuckle area
+    Vec3 palmHigh4 = {indexBase.x - 0.05f, indexBase.y + 0.08f, indexBase.z - 0.4f};   // Index knuckle area
+    Vec3 palmHigh5 = {thumbBase.x - 0.1f, thumbBase.y + 0.0f, thumbBase.z - 0.3f};     // Thumb knuckle area
+    
+    // Pre-knuckle vertices (between upper palm and knuckles) - smooth transition
+    Vec3 preKnuckle1 = {pinkyBase.x - 0.03f, pinkyBase.y + 0.03f, pinkyBase.z - 0.25f};
+    Vec3 preKnuckle2 = {ringBase.x - 0.03f, ringBase.y + 0.05f, ringBase.z - 0.25f};
+    Vec3 preKnuckle3 = {middleBase.x - 0.03f, middleBase.y + 0.07f, middleBase.z - 0.25f};
+    Vec3 preKnuckle4 = {indexBase.x - 0.03f, indexBase.y + 0.05f, indexBase.z - 0.25f};
+    Vec3 preKnuckle5 = {thumbBase.x - 0.06f, thumbBase.y - 0.02f, thumbBase.z - 0.15f};
+    
+    // Finger connection vertices (direct connections to finger bases)
+    Vec3 fingerConn1 = {pinkyBase.x, pinkyBase.y - 0.08f, pinkyBase.z - 0.1f};   // Pinky connection
+    Vec3 fingerConn2 = {ringBase.x, ringBase.y - 0.08f, ringBase.z - 0.1f};     // Ring connection
+    Vec3 fingerConn3 = {middleBase.x, middleBase.y - 0.08f, middleBase.z - 0.1f}; // Middle connection
+    Vec3 fingerConn4 = {indexBase.x, indexBase.y - 0.08f, indexBase.z - 0.1f};   // Index connection
+    Vec3 fingerConn5 = {thumbBase.x, thumbBase.y - 0.05f, thumbBase.z - 0.05f};  // Thumb connection
+    
+    // BACK OF HAND vertices (create solid volume) - Dense mesh to match front
+    Vec3 backBase1 = {palmBase1.x, palmBase1.y - 0.4f, palmBase1.z};
+    Vec3 backBase2 = {palmBase2.x, palmBase2.y - 0.4f, palmBase2.z};
+    Vec3 backBase3 = {palmBase3.x, palmBase3.y - 0.4f, palmBase3.z};
+    Vec3 backBase4 = {palmBase4.x, palmBase4.y - 0.4f, palmBase4.z};
+    Vec3 backBase5 = {palmBase5.x, palmBase5.y - 0.4f, palmBase5.z};
+    
+    Vec3 backLow1 = {palmLow1.x, palmLow1.y - 0.4f, palmLow1.z};
+    Vec3 backLow2 = {palmLow2.x, palmLow2.y - 0.4f, palmLow2.z};
+    Vec3 backLow3 = {palmLow3.x, palmLow3.y - 0.4f, palmLow3.z};
+    Vec3 backLow4 = {palmLow4.x, palmLow4.y - 0.4f, palmLow4.z};
+    Vec3 backLow5 = {palmLow5.x, palmLow5.y - 0.4f, palmLow5.z};
+    Vec3 backLow6 = {palmLow6.x, palmLow6.y - 0.4f, palmLow6.z};
+    
+    Vec3 backMid1 = {palmMid1.x, palmMid1.y - 0.4f, palmMid1.z};
+    Vec3 backMid2 = {palmMid2.x, palmMid2.y - 0.4f, palmMid2.z};
+    Vec3 backMid3 = {palmMid3.x, palmMid3.y - 0.4f, palmMid3.z};
+    Vec3 backMid4 = {palmMid4.x, palmMid4.y - 0.4f, palmMid4.z};
+    Vec3 backMid5 = {palmMid5.x, palmMid5.y - 0.4f, palmMid5.z};
+    Vec3 backMid6 = {palmMid6.x, palmMid6.y - 0.4f, palmMid6.z};
+    
+    Vec3 backUpMid1 = {palmUpMid1.x, palmUpMid1.y - 0.4f, palmUpMid1.z};
+    Vec3 backUpMid2 = {palmUpMid2.x, palmUpMid2.y - 0.4f, palmUpMid2.z};
+    Vec3 backUpMid3 = {palmUpMid3.x, palmUpMid3.y - 0.4f, palmUpMid3.z};
+    Vec3 backUpMid4 = {palmUpMid4.x, palmUpMid4.y - 0.4f, palmUpMid4.z};
+    Vec3 backUpMid5 = {palmUpMid5.x, palmUpMid5.y - 0.4f, palmUpMid5.z};
+    Vec3 backUpMid6 = {palmUpMid6.x, palmUpMid6.y - 0.4f, palmUpMid6.z};
+    
+    Vec3 backHigh1 = {palmHigh1.x, palmHigh1.y - 0.4f, palmHigh1.z};
+    Vec3 backHigh2 = {palmHigh2.x, palmHigh2.y - 0.4f, palmHigh2.z};
+    Vec3 backHigh3 = {palmHigh3.x, palmHigh3.y - 0.4f, palmHigh3.z};
+    Vec3 backHigh4 = {palmHigh4.x, palmHigh4.y - 0.4f, palmHigh4.z};
+    Vec3 backHigh5 = {palmHigh5.x, palmHigh5.y - 0.4f, palmHigh5.z};
+    
+    Vec3 backPreKnuckle1 = {preKnuckle1.x, preKnuckle1.y - 0.4f, preKnuckle1.z};
+    Vec3 backPreKnuckle2 = {preKnuckle2.x, preKnuckle2.y - 0.4f, preKnuckle2.z};
+    Vec3 backPreKnuckle3 = {preKnuckle3.x, preKnuckle3.y - 0.4f, preKnuckle3.z};
+    Vec3 backPreKnuckle4 = {preKnuckle4.x, preKnuckle4.y - 0.4f, preKnuckle4.z};
+    Vec3 backPreKnuckle5 = {preKnuckle5.x, preKnuckle5.y - 0.4f, preKnuckle5.z};
+    
+    // START DRAWING DENSE PALM TOPOLOGY - Maximum polygon coverage
+    glBegin(GL_TRIANGLES);
+    
+    // PALM SURFACE (top) - DENSE MESH for complete visualization
+    Vec3 normalUp = {0, 1, 0};
+    glNormal3f(normalUp.x, normalUp.y, normalUp.z);
+    
+    // DENSE LAYER 1: Base to Low palm (6x6 subdivisions)
+    // Row 1: Left sections
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(palmBase1.x, palmBase1.y, palmBase1.z);
+    glTexCoord2f(0.2f, 0.0f); glVertex3f(palmBase3.x, palmBase3.y, palmBase3.z);
+    glTexCoord2f(0.2f, 0.16f); glVertex3f(palmLow3.x, palmLow3.y, palmLow3.z);
+    
+    glTexCoord2f(0.2f, 0.16f); glVertex3f(palmLow3.x, palmLow3.y, palmLow3.z);
+    glTexCoord2f(0.0f, 0.16f); glVertex3f(palmLow1.x, palmLow1.y, palmLow1.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(palmBase1.x, palmBase1.y, palmBase1.z);
+    
+    glTexCoord2f(0.2f, 0.0f); glVertex3f(palmBase3.x, palmBase3.y, palmBase3.z);
+    glTexCoord2f(0.35f, 0.0f); glVertex3f(palmBase5.x, palmBase5.y, palmBase5.z);
+    glTexCoord2f(0.35f, 0.16f); glVertex3f(palmLow4.x, palmLow4.y, palmLow4.z);
+    
+    glTexCoord2f(0.35f, 0.16f); glVertex3f(palmLow4.x, palmLow4.y, palmLow4.z);
+    glTexCoord2f(0.2f, 0.16f); glVertex3f(palmLow3.x, palmLow3.y, palmLow3.z);
+    glTexCoord2f(0.2f, 0.0f); glVertex3f(palmBase3.x, palmBase3.y, palmBase3.z);
+    
+    glTexCoord2f(0.35f, 0.0f); glVertex3f(palmBase5.x, palmBase5.y, palmBase5.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(palmBase4.x, palmBase4.y, palmBase4.z);
+    glTexCoord2f(0.5f, 0.16f); glVertex3f(palmLow5.x, palmLow5.y, palmLow5.z);
+    
+    glTexCoord2f(0.5f, 0.16f); glVertex3f(palmLow5.x, palmLow5.y, palmLow5.z);
+    glTexCoord2f(0.35f, 0.16f); glVertex3f(palmLow4.x, palmLow4.y, palmLow4.z);
+    glTexCoord2f(0.35f, 0.0f); glVertex3f(palmBase5.x, palmBase5.y, palmBase5.z);
+    
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(palmBase4.x, palmBase4.y, palmBase4.z);
+    glTexCoord2f(0.8f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    glTexCoord2f(0.8f, 0.16f); glVertex3f(palmLow6.x, palmLow6.y, palmLow6.z);
+    
+    glTexCoord2f(0.8f, 0.16f); glVertex3f(palmLow6.x, palmLow6.y, palmLow6.z);
+    glTexCoord2f(0.5f, 0.16f); glVertex3f(palmLow5.x, palmLow5.y, palmLow5.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(palmBase4.x, palmBase4.y, palmBase4.z);
+    
+    glTexCoord2f(0.8f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    glTexCoord2f(1.0f, 0.16f); glVertex3f(palmLow2.x, palmLow2.y, palmLow2.z);
+    
+    glTexCoord2f(1.0f, 0.16f); glVertex3f(palmLow2.x, palmLow2.y, palmLow2.z);
+    glTexCoord2f(0.8f, 0.16f); glVertex3f(palmLow6.x, palmLow6.y, palmLow6.z);
+    glTexCoord2f(0.8f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    
+    // Continue with additional layers to match first palm exactly...
+    // DENSE LAYER 2: Low to Mid palm (6x6 subdivisions)
+    glTexCoord2f(0.0f, 0.16f); glVertex3f(palmLow1.x, palmLow1.y, palmLow1.z);
+    glTexCoord2f(0.2f, 0.16f); glVertex3f(palmLow3.x, palmLow3.y, palmLow3.z);
+    glTexCoord2f(0.2f, 0.33f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    
+    glTexCoord2f(0.2f, 0.33f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    glTexCoord2f(0.0f, 0.33f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    glTexCoord2f(0.0f, 0.16f); glVertex3f(palmLow1.x, palmLow1.y, palmLow1.z);
+    
+    glTexCoord2f(0.2f, 0.16f); glVertex3f(palmLow3.x, palmLow3.y, palmLow3.z);
+    glTexCoord2f(0.35f, 0.16f); glVertex3f(palmLow4.x, palmLow4.y, palmLow4.z);
+    glTexCoord2f(0.35f, 0.33f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    
+    glTexCoord2f(0.35f, 0.33f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    glTexCoord2f(0.2f, 0.33f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    glTexCoord2f(0.2f, 0.16f); glVertex3f(palmLow3.x, palmLow3.y, palmLow3.z);
+    
+    glTexCoord2f(0.35f, 0.16f); glVertex3f(palmLow4.x, palmLow4.y, palmLow4.z);
+    glTexCoord2f(0.5f, 0.16f); glVertex3f(palmLow5.x, palmLow5.y, palmLow5.z);
+    glTexCoord2f(0.5f, 0.33f); glVertex3f(palmMid5.x, palmMid5.y, palmMid5.z);
+    
+    glTexCoord2f(0.5f, 0.33f); glVertex3f(palmMid5.x, palmMid5.y, palmMid5.z);
+    glTexCoord2f(0.35f, 0.33f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    glTexCoord2f(0.35f, 0.16f); glVertex3f(palmLow4.x, palmLow4.y, palmLow4.z);
+    
+    glTexCoord2f(0.5f, 0.16f); glVertex3f(palmLow5.x, palmLow5.y, palmLow5.z);
+    glTexCoord2f(0.8f, 0.16f); glVertex3f(palmLow6.x, palmLow6.y, palmLow6.z);
+    glTexCoord2f(0.8f, 0.33f); glVertex3f(palmMid6.x, palmMid6.y, palmMid6.z);
+    
+    glTexCoord2f(0.8f, 0.33f); glVertex3f(palmMid6.x, palmMid6.y, palmMid6.z);
+    glTexCoord2f(0.5f, 0.33f); glVertex3f(palmMid5.x, palmMid5.y, palmMid5.z);
+    glTexCoord2f(0.5f, 0.16f); glVertex3f(palmLow5.x, palmLow5.y, palmLow5.z);
+    
+    glTexCoord2f(0.8f, 0.16f); glVertex3f(palmLow6.x, palmLow6.y, palmLow6.z);
+    glTexCoord2f(1.0f, 0.16f); glVertex3f(palmLow2.x, palmLow2.y, palmLow2.z);
+    glTexCoord2f(1.0f, 0.33f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    
+    glTexCoord2f(1.0f, 0.33f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    glTexCoord2f(0.8f, 0.33f); glVertex3f(palmMid6.x, palmMid6.y, palmMid6.z);
+    glTexCoord2f(0.8f, 0.16f); glVertex3f(palmLow6.x, palmLow6.y, palmLow6.z);
+    
+    // DENSE LAYER 3: Mid to UpMid palm (6x6 subdivisions)
+    glTexCoord2f(0.0f, 0.33f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    glTexCoord2f(0.2f, 0.33f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    glTexCoord2f(0.2f, 0.5f); glVertex3f(palmUpMid3.x, palmUpMid3.y, palmUpMid3.z);
+    
+    glTexCoord2f(0.2f, 0.5f); glVertex3f(palmUpMid3.x, palmUpMid3.y, palmUpMid3.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(palmUpMid1.x, palmUpMid1.y, palmUpMid1.z);
+    glTexCoord2f(0.0f, 0.33f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    
+    glTexCoord2f(0.2f, 0.33f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    glTexCoord2f(0.35f, 0.33f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    glTexCoord2f(0.35f, 0.5f); glVertex3f(palmUpMid4.x, palmUpMid4.y, palmUpMid4.z);
+    
+    glTexCoord2f(0.35f, 0.5f); glVertex3f(palmUpMid4.x, palmUpMid4.y, palmUpMid4.z);
+    glTexCoord2f(0.2f, 0.5f); glVertex3f(palmUpMid3.x, palmUpMid3.y, palmUpMid3.z);
+    glTexCoord2f(0.2f, 0.33f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    
+    // LAYER 3: Mid to High palm (knuckle areas)
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(palmHigh1.x, palmHigh1.y, palmHigh1.z);
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(palmHigh2.x, palmHigh2.y, palmHigh2.z);
+    
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(palmHigh2.x, palmHigh2.y, palmHigh2.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(palmHigh2.x, palmHigh2.y, palmHigh2.z);
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(palmHigh3.x, palmHigh3.y, palmHigh3.z);
+    
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(palmHigh3.x, palmHigh3.y, palmHigh3.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(palmMid3.x, palmMid3.y, palmMid3.z);
+    
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(palmHigh3.x, palmHigh3.y, palmHigh3.z);
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(palmHigh4.x, palmHigh4.y, palmHigh4.z);
+    
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(palmHigh4.x, palmHigh4.y, palmHigh4.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(palmMid4.x, palmMid4.y, palmMid4.z);
+    
+    // Thumb area connection
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(palmHigh4.x, palmHigh4.y, palmHigh4.z);
+    glTexCoord2f(1.0f, 0.75f); glVertex3f(palmHigh5.x, palmHigh5.y, palmHigh5.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    
+    // LAYER 4: High palm to finger connections
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(palmHigh1.x, palmHigh1.y, palmHigh1.z);
+    glTexCoord2f(0.2f, 1.0f); glVertex3f(fingerConn1.x, fingerConn1.y, fingerConn1.z);
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(fingerConn2.x, fingerConn2.y, fingerConn2.z);
+    
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(fingerConn2.x, fingerConn2.y, fingerConn2.z);
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(palmHigh2.x, palmHigh2.y, palmHigh2.z);
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(palmHigh1.x, palmHigh1.y, palmHigh1.z);
+    
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(palmHigh2.x, palmHigh2.y, palmHigh2.z);
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(fingerConn2.x, fingerConn2.y, fingerConn2.z);
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(fingerConn3.x, fingerConn3.y, fingerConn3.z);
+    
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(fingerConn3.x, fingerConn3.y, fingerConn3.z);
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(palmHigh3.x, palmHigh3.y, palmHigh3.z);
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(palmHigh2.x, palmHigh2.y, palmHigh2.z);
+    
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(palmHigh3.x, palmHigh3.y, palmHigh3.z);
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(fingerConn3.x, fingerConn3.y, fingerConn3.z);
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(fingerConn4.x, fingerConn4.y, fingerConn4.z);
+    
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(fingerConn4.x, fingerConn4.y, fingerConn4.z);
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(palmHigh4.x, palmHigh4.y, palmHigh4.z);
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(palmHigh3.x, palmHigh3.y, palmHigh3.z);
+    
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(palmHigh4.x, palmHigh4.y, palmHigh4.z);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(fingerConn5.x, fingerConn5.y, fingerConn5.z);
+    glTexCoord2f(1.0f, 0.75f); glVertex3f(palmHigh5.x, palmHigh5.y, palmHigh5.z);
+    
+    // LAYER 5: Finger connections to actual finger bases
+    Vec3 normalConnect = {0, 0.6f, 0.8f};
+    glNormal3f(normalConnect.x, normalConnect.y, normalConnect.z);
+    
+    glTexCoord2f(0.2f, 1.0f); glVertex3f(fingerConn1.x, fingerConn1.y, fingerConn1.z);
+    glTexCoord2f(0.2f, 1.0f); glVertex3f(pinkyBase.x, pinkyBase.y, pinkyBase.z);
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(ringBase.x, ringBase.y, ringBase.z);
+    
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(ringBase.x, ringBase.y, ringBase.z);
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(fingerConn2.x, fingerConn2.y, fingerConn2.z);
+    glTexCoord2f(0.2f, 1.0f); glVertex3f(fingerConn1.x, fingerConn1.y, fingerConn1.z);
+    
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(fingerConn2.x, fingerConn2.y, fingerConn2.z);
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(ringBase.x, ringBase.y, ringBase.z);
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(middleBase.x, middleBase.y, middleBase.z);
+    
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(middleBase.x, middleBase.y, middleBase.z);
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(fingerConn3.x, fingerConn3.y, fingerConn3.z);
+    glTexCoord2f(0.4f, 1.0f); glVertex3f(fingerConn2.x, fingerConn2.y, fingerConn2.z);
+    
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(fingerConn3.x, fingerConn3.y, fingerConn3.z);
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(middleBase.x, middleBase.y, middleBase.z);
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(indexBase.x, indexBase.y, indexBase.z);
+    
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(indexBase.x, indexBase.y, indexBase.z);
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(fingerConn4.x, fingerConn4.y, fingerConn4.z);
+    glTexCoord2f(0.6f, 1.0f); glVertex3f(fingerConn3.x, fingerConn3.y, fingerConn3.z);
+    
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(fingerConn4.x, fingerConn4.y, fingerConn4.z);
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(indexBase.x, indexBase.y, indexBase.z);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(thumbBase.x, thumbBase.y, thumbBase.z);
+    
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(thumbBase.x, thumbBase.y, thumbBase.z);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(fingerConn5.x, fingerConn5.y, fingerConn5.z);
+    glTexCoord2f(0.8f, 1.0f); glVertex3f(fingerConn4.x, fingerConn4.y, fingerConn4.z);
+    
+    // BACK OF HAND SURFACE (bottom) - Complete coverage with layered topology
+    Vec3 normalDown = {0, -1, 0};
+    glNormal3f(normalDown.x, normalDown.y, normalDown.z);
+    
+    // Mirror the top topology on the bottom for solid volume
+    // Base to Low back layer
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(backBase1.x, backBase1.y, backBase1.z);
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(backLow1.x, backLow1.y, backLow1.z);
+    glTexCoord2f(0.33f, 0.25f); glVertex3f(backLow3.x, backLow3.y, backLow3.z);
+    
+    glTexCoord2f(0.33f, 0.25f); glVertex3f(backLow3.x, backLow3.y, backLow3.z);
+    glTexCoord2f(0.33f, 0.0f); glVertex3f(backBase3.x, backBase3.y, backBase3.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(backBase1.x, backBase1.y, backBase1.z);
+    
+    glTexCoord2f(0.33f, 0.0f); glVertex3f(backBase3.x, backBase3.y, backBase3.z);
+    glTexCoord2f(0.33f, 0.25f); glVertex3f(backLow3.x, backLow3.y, backLow3.z);
+    glTexCoord2f(0.66f, 0.25f); glVertex3f(backLow4.x, backLow4.y, backLow4.z);
+    
+    glTexCoord2f(0.66f, 0.25f); glVertex3f(backLow4.x, backLow4.y, backLow4.z);
+    glTexCoord2f(0.66f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    glTexCoord2f(0.33f, 0.0f); glVertex3f(backBase3.x, backBase3.y, backBase3.z);
+    
+    glTexCoord2f(0.66f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    glTexCoord2f(0.66f, 0.25f); glVertex3f(backLow4.x, backLow4.y, backLow4.z);
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(backLow2.x, backLow2.y, backLow2.z);
+    
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(backLow2.x, backLow2.y, backLow2.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    glTexCoord2f(0.66f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    
+    // Low to Mid back layer
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(backLow1.x, backLow1.y, backLow1.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(backMid1.x, backMid1.y, backMid1.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    glTexCoord2f(0.33f, 0.25f); glVertex3f(backLow3.x, backLow3.y, backLow3.z);
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(backLow1.x, backLow1.y, backLow1.z);
+    
+    glTexCoord2f(0.33f, 0.25f); glVertex3f(backLow3.x, backLow3.y, backLow3.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(backMid4.x, backMid4.y, backMid4.z);
+    
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(backMid4.x, backMid4.y, backMid4.z);
+    glTexCoord2f(0.66f, 0.25f); glVertex3f(backLow4.x, backLow4.y, backLow4.z);
+    glTexCoord2f(0.33f, 0.25f); glVertex3f(backLow3.x, backLow3.y, backLow3.z);
+    
+    glTexCoord2f(0.66f, 0.25f); glVertex3f(backLow4.x, backLow4.y, backLow4.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(backMid4.x, backMid4.y, backMid4.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(backLow2.x, backLow2.y, backLow2.z);
+    glTexCoord2f(0.66f, 0.25f); glVertex3f(backLow4.x, backLow4.y, backLow4.z);
+    
+    // Mid to High back layer (knuckles area)
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(backMid1.x, backMid1.y, backMid1.z);
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(backHigh1.x, backHigh1.y, backHigh1.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(backHigh1.x, backHigh1.y, backHigh1.z);
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(backHigh2.x, backHigh2.y, backHigh2.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    glTexCoord2f(0.4f, 0.75f); glVertex3f(backHigh2.x, backHigh2.y, backHigh2.z);
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(backHigh3.x, backHigh3.y, backHigh3.z);
+    
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(backHigh3.x, backHigh3.y, backHigh3.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(backMid4.x, backMid4.y, backMid4.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(backMid3.x, backMid3.y, backMid3.z);
+    
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(backMid4.x, backMid4.y, backMid4.z);
+    glTexCoord2f(0.6f, 0.75f); glVertex3f(backHigh3.x, backHigh3.y, backHigh3.z);
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(backHigh4.x, backHigh4.y, backHigh4.z);
+    
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(backHigh4.x, backHigh4.y, backHigh4.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(backMid4.x, backMid4.y, backMid4.z);
+    
+    glTexCoord2f(0.8f, 0.75f); glVertex3f(backHigh4.x, backHigh4.y, backHigh4.z);
+    glTexCoord2f(1.0f, 0.75f); glVertex3f(backHigh5.x, backHigh5.y, backHigh5.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    
+    // SIDE WALLS - Connect top and bottom surfaces for solid volume
+    Vec3 normalSide;
+    
+    // Left side wall (pinky side)
+    normalSide = {-1, 0, 0};
+    glNormal3f(normalSide.x, normalSide.y, normalSide.z);
+    
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(palmBase1.x, palmBase1.y, palmBase1.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(backBase1.x, backBase1.y, backBase1.z);
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(backLow1.x, backLow1.y, backLow1.z);
+    
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(backLow1.x, backLow1.y, backLow1.z);
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(palmLow1.x, palmLow1.y, palmLow1.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(palmBase1.x, palmBase1.y, palmBase1.z);
+    
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(palmLow1.x, palmLow1.y, palmLow1.z);
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(backLow1.x, backLow1.y, backLow1.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(backMid1.x, backMid1.y, backMid1.z);
+    
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(backMid1.x, backMid1.y, backMid1.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    glTexCoord2f(0.0f, 0.25f); glVertex3f(palmLow1.x, palmLow1.y, palmLow1.z);
+    
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(backMid1.x, backMid1.y, backMid1.z);
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(backHigh1.x, backHigh1.y, backHigh1.z);
+    
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(backHigh1.x, backHigh1.y, backHigh1.z);
+    glTexCoord2f(0.2f, 0.75f); glVertex3f(palmHigh1.x, palmHigh1.y, palmHigh1.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(palmMid1.x, palmMid1.y, palmMid1.z);
+    
+    // Right side wall (thumb side)
+    normalSide = {1, 0, 0};
+    glNormal3f(normalSide.x, normalSide.y, normalSide.z);
+    
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(palmLow2.x, palmLow2.y, palmLow2.z);
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(backLow2.x, backLow2.y, backLow2.z);
+    
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(backLow2.x, backLow2.y, backLow2.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(palmLow2.x, palmLow2.y, palmLow2.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(backLow2.x, backLow2.y, backLow2.z);
+    glTexCoord2f(1.0f, 0.25f); glVertex3f(palmLow2.x, palmLow2.y, palmLow2.z);
+    
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    glTexCoord2f(1.0f, 0.75f); glVertex3f(palmHigh5.x, palmHigh5.y, palmHigh5.z);
+    glTexCoord2f(1.0f, 0.75f); glVertex3f(backHigh5.x, backHigh5.y, backHigh5.z);
+    
+    glTexCoord2f(1.0f, 0.75f); glVertex3f(backHigh5.x, backHigh5.y, backHigh5.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(backMid2.x, backMid2.y, backMid2.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(palmMid2.x, palmMid2.y, palmMid2.z);
+    
+    // Front wall (wrist edge)
+    normalSide = {0, 0, -1};
+    glNormal3f(normalSide.x, normalSide.y, normalSide.z);
+    
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(palmBase1.x, palmBase1.y, palmBase1.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(palmBase3.x, palmBase3.y, palmBase3.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(backBase3.x, backBase3.y, backBase3.z);
+    
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(backBase3.x, backBase3.y, backBase3.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(backBase1.x, backBase1.y, backBase1.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(palmBase1.x, palmBase1.y, palmBase1.z);
+    
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(palmBase3.x, palmBase3.y, palmBase3.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(palmBase2.x, palmBase2.y, palmBase2.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(backBase2.x, backBase2.y, backBase2.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(backBase3.x, backBase3.y, backBase3.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(palmBase3.x, palmBase3.y, palmBase3.z);
+    
+    // INTEGRATED PALM SURFACE - Natural hand skin feel
+    Vec3 normalPalm = {0, 0.8f, 0.6f}; // More natural normal direction
+    glNormal3f(normalPalm.x, normalPalm.y, normalPalm.z);
+    
+    // Create a naturally integrated palm surface that feels like real hand skin
+    // Positions should blend seamlessly with existing hand geometry
+    
+    // Define integrated palm vertices (natural positioning, not layered on top)
+    float naturalBlend = 0.02f; // Subtle forward positioning for natural feel
+    float seamlessHeight = 0.01f; // Minimal height adjustment for seamless integration
+    
+    // Natural palm base (wrist area) - seamlessly integrated
+    Vec3 naturalBase1 = {palmBase1.x - 0.05f, palmBase1.y + seamlessHeight, palmBase1.z + naturalBlend};
+    Vec3 naturalBase2 = {palmBase2.x + 0.05f, palmBase2.y + seamlessHeight, palmBase2.z + naturalBlend};
+    Vec3 naturalBase3 = {palmBase3.x - 0.02f, palmBase3.y + seamlessHeight, palmBase3.z + naturalBlend};
+    Vec3 naturalBase4 = {palmBase4.x + 0.02f, palmBase4.y + seamlessHeight, palmBase4.z + naturalBlend};
+    Vec3 naturalBase5 = {palmBase5.x, palmBase5.y + seamlessHeight, palmBase5.z + naturalBlend};
+    
+    // Natural knuckle area (where fingers connect) - integrated with finger bases
+    Vec3 naturalKnuckle1 = {pinkyBase.x - 0.02f, pinkyBase.y + seamlessHeight*2, pinkyBase.z + naturalBlend*0.5f};
+    Vec3 naturalKnuckle2 = {ringBase.x - 0.01f, ringBase.y + seamlessHeight*2, ringBase.z + naturalBlend*0.5f};
+    Vec3 naturalKnuckle3 = {middleBase.x, middleBase.y + seamlessHeight*2, middleBase.z + naturalBlend*0.5f};
+    Vec3 naturalKnuckle4 = {indexBase.x + 0.01f, indexBase.y + seamlessHeight*2, indexBase.z + naturalBlend*0.5f};
+    Vec3 naturalKnuckle5 = {thumbBase.x + 0.02f, thumbBase.y + seamlessHeight*1.5f, thumbBase.z + naturalBlend*0.3f};
+    
+    // Natural mid-palm area - smooth transition between base and knuckles
+    Vec3 naturalMid1 = {palmMid1.x - 0.03f, palmMid1.y + seamlessHeight*1.5f, palmMid1.z + naturalBlend*0.8f};
+    Vec3 naturalMid2 = {palmMid2.x + 0.03f, palmMid2.y + seamlessHeight*1.5f, palmMid2.z + naturalBlend*0.8f};
+    Vec3 naturalMid3 = {palmMid3.x - 0.015f, palmMid3.y + seamlessHeight*1.5f, palmMid3.z + naturalBlend*0.8f};
+    Vec3 naturalMid4 = {palmMid4.x - 0.005f, palmMid4.y + seamlessHeight*1.5f, palmMid4.z + naturalBlend*0.8f};
+    Vec3 naturalMid5 = {palmMid5.x + 0.005f, palmMid5.y + seamlessHeight*1.5f, palmMid5.z + naturalBlend*0.8f};
+    Vec3 naturalMid6 = {palmMid6.x + 0.015f, palmMid6.y + seamlessHeight*1.5f, palmMid6.z + naturalBlend*0.8f};
+    
+    // SOLID FRONT SURFACE TRIANGLES - Complete coverage
+    
+    // Base to Mid front coverage
+    // NATURAL PALM SURFACE TRIANGULATION - Seamless integration
+    glColor4f(0.9f, 0.7f, 0.6f, 1.0f); // Natural hand color
+    
+    // Base palm surface with natural skin feel (not layered on top)
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(naturalBase1.x, naturalBase1.y, naturalBase1.z);
+    glTexCoord2f(0.33f, 0.0f); glVertex3f(naturalBase3.x, naturalBase3.y, naturalBase3.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(naturalMid1.x, naturalMid1.y, naturalMid1.z);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(naturalBase1.x, naturalBase1.y, naturalBase1.z);
+    
+    glTexCoord2f(0.33f, 0.0f); glVertex3f(naturalBase3.x, naturalBase3.y, naturalBase3.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(naturalBase5.x, naturalBase5.y, naturalBase5.z);
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    glTexCoord2f(0.33f, 0.0f); glVertex3f(naturalBase3.x, naturalBase3.y, naturalBase3.z);
+    
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(naturalBase5.x, naturalBase5.y, naturalBase5.z);
+    glTexCoord2f(0.66f, 0.0f); glVertex3f(naturalBase4.x, naturalBase4.y, naturalBase4.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    glTexCoord2f(0.5f, 0.0f); glVertex3f(naturalBase5.x, naturalBase5.y, naturalBase5.z);
+    
+    glTexCoord2f(0.66f, 0.0f); glVertex3f(naturalBase4.x, naturalBase4.y, naturalBase4.z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(naturalBase2.x, naturalBase2.y, naturalBase2.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid6.x, naturalMid6.y, naturalMid6.z);
+    
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid6.x, naturalMid6.y, naturalMid6.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    glTexCoord2f(0.66f, 0.0f); glVertex3f(naturalBase4.x, naturalBase4.y, naturalBase4.z);
+    
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(naturalBase2.x, naturalBase2.y, naturalBase2.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid2.x, naturalMid2.y, naturalMid2.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid6.x, naturalMid6.y, naturalMid6.z);
+    
+    // Natural knuckle transitions (seamless with finger connections)
+    glTexCoord2f(0.0f, 0.5f); glVertex3f(naturalMid1.x, naturalMid1.y, naturalMid1.z);
+    glTexCoord2f(0.2f, 0.8f); glVertex3f(naturalKnuckle1.x, naturalKnuckle1.y, naturalKnuckle1.z);
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    glTexCoord2f(0.2f, 0.8f); glVertex3f(naturalKnuckle1.x, naturalKnuckle1.y, naturalKnuckle1.z);
+    glTexCoord2f(0.4f, 0.8f); glVertex3f(naturalKnuckle2.x, naturalKnuckle2.y, naturalKnuckle2.z);
+    
+    glTexCoord2f(0.33f, 0.5f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    glTexCoord2f(0.4f, 0.8f); glVertex3f(naturalKnuckle2.x, naturalKnuckle2.y, naturalKnuckle2.z);
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    glTexCoord2f(0.4f, 0.8f); glVertex3f(naturalKnuckle2.x, naturalKnuckle2.y, naturalKnuckle2.z);
+    glTexCoord2f(0.6f, 0.8f); glVertex3f(naturalKnuckle3.x, naturalKnuckle3.y, naturalKnuckle3.z);
+    
+    glTexCoord2f(0.5f, 0.5f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    glTexCoord2f(0.6f, 0.8f); glVertex3f(naturalKnuckle3.x, naturalKnuckle3.y, naturalKnuckle3.z);
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    glTexCoord2f(0.6f, 0.8f); glVertex3f(naturalKnuckle3.x, naturalKnuckle3.y, naturalKnuckle3.z);
+    glTexCoord2f(0.8f, 0.8f); glVertex3f(naturalKnuckle4.x, naturalKnuckle4.y, naturalKnuckle4.z);
+    
+    glTexCoord2f(0.66f, 0.5f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    glTexCoord2f(0.8f, 0.8f); glVertex3f(naturalKnuckle4.x, naturalKnuckle4.y, naturalKnuckle4.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid6.x, naturalMid6.y, naturalMid6.z);
+    
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid6.x, naturalMid6.y, naturalMid6.z);
+    glTexCoord2f(0.8f, 0.8f); glVertex3f(naturalKnuckle4.x, naturalKnuckle4.y, naturalKnuckle4.z);
+    glTexCoord2f(1.0f, 0.8f); glVertex3f(naturalKnuckle5.x, naturalKnuckle5.y, naturalKnuckle5.z);
+    
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid6.x, naturalMid6.y, naturalMid6.z);
+    glTexCoord2f(1.0f, 0.8f); glVertex3f(naturalKnuckle5.x, naturalKnuckle5.y, naturalKnuckle5.z);
+    glTexCoord2f(1.0f, 0.5f); glVertex3f(naturalMid2.x, naturalMid2.y, naturalMid2.z);
+    
+    // Additional smooth surface coverage for seamless integration
+    glTexCoord2f(0.2f, 0.2f); glVertex3f(naturalBase5.x, naturalBase5.y, naturalBase5.z);
+    glTexCoord2f(0.4f, 0.4f); glVertex3f(naturalMid3.x, naturalMid3.y, naturalMid3.z);
+    glTexCoord2f(0.6f, 0.4f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    
+    glTexCoord2f(0.6f, 0.4f); glVertex3f(naturalMid4.x, naturalMid4.y, naturalMid4.z);
+    glTexCoord2f(0.8f, 0.4f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    glTexCoord2f(0.5f, 0.2f); glVertex3f(naturalBase5.x, naturalBase5.y, naturalBase5.z);
+    
+    glTexCoord2f(0.5f, 0.2f); glVertex3f(naturalBase5.x, naturalBase5.y, naturalBase5.z);
+    glTexCoord2f(0.8f, 0.4f); glVertex3f(naturalMid5.x, naturalMid5.y, naturalMid5.z);
+    glTexCoord2f(0.8f, 0.2f); glVertex3f(naturalBase4.x, naturalBase4.y, naturalBase4.z);
+    
+    glEnd();
+}
+
 static void drawHand() {
     if (g_HandJoints.empty()) return;
     
@@ -1641,6 +2448,7 @@ static void drawHand() {
         glColor3f(0.9f, 0.8f, 0.7f);
     }
     
+    // Draw first hand and arm
     // Draw low-poly arm first (behind hand)
     drawLowPolyArm();
     
@@ -1678,6 +2486,58 @@ static void drawHand() {
     glColor3f(0.8f, 0.7f, 0.6f); // Darker for joint definition
     for (const auto& joint : g_HandJoints) {
         drawJoint(joint.position, 0.015f); // Smaller joints
+    }
+    
+    // Draw second hand and arm if available
+    if (!g_HandJoints2.empty()) {
+        // Enable texturing if enabled
+        if (g_TextureEnabled) {
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+            glColor3f(1.0f, 1.0f, 1.0f);
+        } else {
+            glDisable(GL_TEXTURE_2D);
+            glColor3f(0.9f, 0.8f, 0.7f);
+        }
+        
+        // Draw second arm
+        drawLowPolyArm2();
+        
+        // Re-enable texture for second hand if needed
+        if (g_TextureEnabled) {
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+            glColor3f(1.0f, 1.0f, 1.0f);
+        } else {
+            glDisable(GL_TEXTURE_2D);
+            glColor3f(0.9f, 0.8f, 0.7f);
+        }
+        
+        // Draw connection piece between arm and palm for second hand
+        Vec3 armConnection2 = {4.0f, 0.0f, 0.05f};  // Connection point for second hand
+        Vec3 wristPos2 = g_HandJoints2[0].position;  // Second hand wrist position
+        drawRobotArmSegment(armConnection2, wristPos2, 0.85f, 0.28f);  // Realistic wrist connection
+        
+        // Draw second hand palm
+        drawSkinnedPalm2();
+        
+        // Draw second hand thumb
+        drawLowPolyThumb2();
+        
+        // Draw second hand fingers
+        drawLowPolyFinger2(5, 6, 7, 8);   // Index finger
+        drawLowPolyFinger2(9, 10, 11, 12); // Middle finger
+        drawLowPolyFinger2(13, 14, 15, 16); // Ring finger
+        drawLowPolyFinger2(17, 18, 19, 20); // Pinky finger
+
+        // Disable texturing for joints
+        glDisable(GL_TEXTURE_2D);
+
+        // Optional: Draw joints as small cubes for low-poly style
+        glColor3f(0.8f, 0.7f, 0.6f); // Darker for joint definition
+        for (const auto& joint : g_HandJoints2) {
+            drawJoint(joint.position, 0.015f); // Smaller joints
+        }
     }
 }
 
@@ -1749,6 +2609,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         // Initialize hand and arm
         InitializeHand();
         InitializeArm();
+        
+        // Initialize second hand and arm
+        InitializeHand2();
+        InitializeArm2();
+        
         ResetCamera();
         return 0;
 

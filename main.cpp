@@ -41,12 +41,6 @@ float gPitch = 0.1f;
 bool keyW = false, keyS = false, keyA = false, keyD = false; // For Camera
 bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift = false; // For Character
 
-// --- Kung Fu Input Controls ---
-bool key1 = false, key2 = false, key3 = false, key4 = false, key5 = false;
-bool key6 = false, key7 = false, key8 = false, key9 = false, key0 = false;
-bool keyQ = false, keyE = false, keyR = false, keyT = false;
-bool keyF = false, keyG = false, keyH = false, keyJ = false;
-
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
 // --- Proportions Control ---
@@ -63,54 +57,6 @@ float gMoveSpeed = 0.0f;
 const float WALK_SPEED = 3.0f;
 const float RUN_SPEED = 7.0f;
 const float TURN_SPEED = 120.0f;
-
-// --- Kung Fu Animation System ---
-enum KungFuPose {
-    KUNG_FU_IDLE,
-    KUNG_FU_READY_STANCE,
-    KUNG_FU_PUNCH_LEFT,
-    KUNG_FU_PUNCH_RIGHT,
-    KUNG_FU_BLOCK_HIGH,
-    KUNG_FU_BLOCK_LOW,
-    KUNG_FU_TIGER_CLAW,
-    KUNG_FU_CRANE_STANCE,
-    KUNG_FU_DRAGON_FIST,
-    KUNG_FU_SNAKE_HAND,
-    KUNG_FU_MANTIS_STRIKE,
-    KUNG_FU_MEDITATION
-};
-
-struct KungFuState {
-    KungFuPose currentPose;
-    KungFuPose targetPose;
-    float transitionTime;
-    float maxTransitionTime;
-    bool isAnimating;
-    float animationPhase;
-    float animationSpeed;
-} g_kungFuState = { KUNG_FU_IDLE, KUNG_FU_IDLE, 0.0f, 0.5f, false, 0.0f, 2.0f };
-
-struct ArmPose {
-    // Shoulder angles
-    float shoulderPitch, shoulderYaw, shoulderRoll;
-    // Elbow angle
-    float elbowBend;
-    // Wrist angles
-    float wristPitch, wristYaw, wristRoll;
-    // Hand gesture
-    float fingerCurl[5]; // thumb, index, middle, ring, pinky
-    float fingerSpread[4]; // gaps between fingers
-};
-
-struct KungFuPoseData {
-    ArmPose leftArm;
-    ArmPose rightArm;
-    float torsoTwist;
-    float stanceWidth;
-};
-
-// Pre-defined kung fu poses
-KungFuPoseData g_kungFuPoses[12];
 
 // --- Data Structures ---
 struct Vec3f { float x, y, z; };
@@ -298,6 +244,8 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle);
 void drawSkirt(float leftLegAngle, float rightLegAngle);
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle);
 void drawShoulderSockets();
+void drawCubeShoulder(float x, float y, float z, float width, float height, float depth);
+void drawSphereShoulder(float x, float y, float z, float radius);
 
 // --- Math & Model Building ---
 Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
@@ -453,214 +401,6 @@ static void InitializeArm2() {
     // ARM_SHOULDER (5) - mirrored
     g_ArmJoints2[5] = {{xOffset + 0.28f * flipSign, 0.35f, 12.0f}, 4};  
 }
-
-// ====================== Kung Fu Pose Initialization ======================
-static void InitializeKungFuPoses() {
-    // KUNG_FU_IDLE - neutral relaxed pose
-    g_kungFuPoses[KUNG_FU_IDLE].leftArm = {0, 0, 0, 15, 0, 0, 0, {0.1f, 0.1f, 0.1f, 0.1f, 0.1f}, {0.2f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_IDLE].rightArm = {0, 0, 0, 15, 0, 0, 0, {0.1f, 0.1f, 0.1f, 0.1f, 0.1f}, {0.2f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_IDLE].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_IDLE].stanceWidth = 1.0f;
-    
-    // KUNG_FU_READY_STANCE - ready to fight
-    g_kungFuPoses[KUNG_FU_READY_STANCE].leftArm = {-20, -45, -10, 90, 15, 0, -10, {0.3f, 0.2f, 0.2f, 0.2f, 0.2f}, {0.3f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_READY_STANCE].rightArm = {-20, 45, 10, 90, -15, 0, 10, {0.3f, 0.2f, 0.2f, 0.2f, 0.2f}, {0.3f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_READY_STANCE].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_READY_STANCE].stanceWidth = 1.3f;
-    
-    // KUNG_FU_PUNCH_LEFT - left straight punch
-    g_kungFuPoses[KUNG_FU_PUNCH_LEFT].leftArm = {-10, 0, 0, 170, 0, 0, 0, {0.0f, 0.9f, 0.9f, 0.9f, 0.8f}, {0.1f, 0.1f, 0.1f, 0.1f}};
-    g_kungFuPoses[KUNG_FU_PUNCH_LEFT].rightArm = {-30, 45, 15, 110, -20, 0, 15, {0.4f, 0.3f, 0.3f, 0.3f, 0.3f}, {0.3f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_PUNCH_LEFT].torsoTwist = -15;
-    g_kungFuPoses[KUNG_FU_PUNCH_LEFT].stanceWidth = 1.2f;
-    
-    // KUNG_FU_PUNCH_RIGHT - right straight punch
-    g_kungFuPoses[KUNG_FU_PUNCH_RIGHT].leftArm = {-30, -45, -15, 110, 20, 0, -15, {0.4f, 0.3f, 0.3f, 0.3f, 0.3f}, {0.3f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_PUNCH_RIGHT].rightArm = {-10, 0, 0, 170, 0, 0, 0, {0.0f, 0.9f, 0.9f, 0.9f, 0.8f}, {0.1f, 0.1f, 0.1f, 0.1f}};
-    g_kungFuPoses[KUNG_FU_PUNCH_RIGHT].torsoTwist = 15;
-    g_kungFuPoses[KUNG_FU_PUNCH_RIGHT].stanceWidth = 1.2f;
-    
-    // KUNG_FU_BLOCK_HIGH - high block
-    g_kungFuPoses[KUNG_FU_BLOCK_HIGH].leftArm = {-130, -20, -30, 120, -30, 0, -20, {0.5f, 0.4f, 0.4f, 0.4f, 0.4f}, {0.2f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_BLOCK_HIGH].rightArm = {-130, 20, 30, 120, 30, 0, 20, {0.5f, 0.4f, 0.4f, 0.4f, 0.4f}, {0.2f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_BLOCK_HIGH].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_BLOCK_HIGH].stanceWidth = 1.1f;
-    
-    // KUNG_FU_BLOCK_LOW - low block
-    g_kungFuPoses[KUNG_FU_BLOCK_LOW].leftArm = {60, -30, -20, 90, 20, 0, -15, {0.6f, 0.5f, 0.5f, 0.5f, 0.5f}, {0.2f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_BLOCK_LOW].rightArm = {60, 30, 20, 90, -20, 0, 15, {0.6f, 0.5f, 0.5f, 0.5f, 0.5f}, {0.2f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_BLOCK_LOW].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_BLOCK_LOW].stanceWidth = 1.1f;
-    
-    // KUNG_FU_TIGER_CLAW - tiger claw stance
-    g_kungFuPoses[KUNG_FU_TIGER_CLAW].leftArm = {-30, -60, -20, 130, 45, 20, -30, {0.7f, 0.3f, 0.8f, 0.3f, 0.8f}, {0.6f, 0.4f, 0.6f, 0.4f}};
-    g_kungFuPoses[KUNG_FU_TIGER_CLAW].rightArm = {-30, 60, 20, 130, -45, -20, 30, {0.7f, 0.3f, 0.8f, 0.3f, 0.8f}, {0.6f, 0.4f, 0.6f, 0.4f}};
-    g_kungFuPoses[KUNG_FU_TIGER_CLAW].torsoTwist = -10;
-    g_kungFuPoses[KUNG_FU_TIGER_CLAW].stanceWidth = 1.4f;
-    
-    // KUNG_FU_CRANE_STANCE - crane wing stance
-    g_kungFuPoses[KUNG_FU_CRANE_STANCE].leftArm = {-70, -90, -45, 60, 30, 45, -20, {0.2f, 0.1f, 0.1f, 0.1f, 0.1f}, {0.8f, 0.6f, 0.8f, 0.6f}};
-    g_kungFuPoses[KUNG_FU_CRANE_STANCE].rightArm = {-70, 90, 45, 60, -30, -45, 20, {0.2f, 0.1f, 0.1f, 0.1f, 0.1f}, {0.8f, 0.6f, 0.8f, 0.6f}};
-    g_kungFuPoses[KUNG_FU_CRANE_STANCE].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_CRANE_STANCE].stanceWidth = 0.8f;
-    
-    // KUNG_FU_DRAGON_FIST - dragon fist
-    g_kungFuPoses[KUNG_FU_DRAGON_FIST].leftArm = {-40, -30, -15, 140, 60, 30, -40, {0.8f, 0.9f, 0.9f, 0.9f, 0.7f}, {0.2f, 0.1f, 0.1f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_DRAGON_FIST].rightArm = {-20, 45, 25, 120, -40, -20, 30, {0.4f, 0.3f, 0.3f, 0.3f, 0.3f}, {0.3f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_DRAGON_FIST].torsoTwist = 20;
-    g_kungFuPoses[KUNG_FU_DRAGON_FIST].stanceWidth = 1.3f;
-    
-    // KUNG_FU_SNAKE_HAND - snake hand technique
-    g_kungFuPoses[KUNG_FU_SNAKE_HAND].leftArm = {-10, -20, 0, 160, 20, 60, -30, {0.1f, 0.9f, 0.9f, 0.9f, 0.9f}, {0.0f, 0.0f, 0.0f, 0.0f}};
-    g_kungFuPoses[KUNG_FU_SNAKE_HAND].rightArm = {-40, 40, 20, 100, -30, -40, 25, {0.5f, 0.4f, 0.4f, 0.4f, 0.4f}, {0.3f, 0.2f, 0.2f, 0.2f}};
-    g_kungFuPoses[KUNG_FU_SNAKE_HAND].torsoTwist = -25;
-    g_kungFuPoses[KUNG_FU_SNAKE_HAND].stanceWidth = 1.1f;
-    
-    // KUNG_FU_MANTIS_STRIKE - praying mantis strike
-    g_kungFuPoses[KUNG_FU_MANTIS_STRIKE].leftArm = {-80, -40, -30, 150, 80, 40, -60, {0.9f, 0.5f, 0.9f, 0.5f, 0.9f}, {0.1f, 0.3f, 0.1f, 0.3f}};
-    g_kungFuPoses[KUNG_FU_MANTIS_STRIKE].rightArm = {-80, 40, 30, 150, -80, -40, 60, {0.9f, 0.5f, 0.9f, 0.5f, 0.9f}, {0.1f, 0.3f, 0.1f, 0.3f}};
-    g_kungFuPoses[KUNG_FU_MANTIS_STRIKE].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_MANTIS_STRIKE].stanceWidth = 1.0f;
-    
-    // KUNG_FU_MEDITATION - meditation pose
-    g_kungFuPoses[KUNG_FU_MEDITATION].leftArm = {30, -45, 0, 90, 0, 0, 30, {0.3f, 0.6f, 0.6f, 0.6f, 0.6f}, {0.4f, 0.3f, 0.3f, 0.3f}};
-    g_kungFuPoses[KUNG_FU_MEDITATION].rightArm = {30, 45, 0, 90, 0, 0, -30, {0.3f, 0.6f, 0.6f, 0.6f, 0.6f}, {0.4f, 0.3f, 0.3f, 0.3f}};
-    g_kungFuPoses[KUNG_FU_MEDITATION].torsoTwist = 0;
-    g_kungFuPoses[KUNG_FU_MEDITATION].stanceWidth = 1.0f;
-}
-
-// ====================== Kung Fu Animation Functions ======================
-void updateKungFuAnimation(float deltaTime) {
-    // Update animation phase for flowing movements
-    g_kungFuState.animationPhase += deltaTime * g_kungFuState.animationSpeed;
-    if (g_kungFuState.animationPhase > 2.0f * PI) {
-        g_kungFuState.animationPhase -= 2.0f * PI;
-    }
-    
-    // Handle pose transitions
-    if (g_kungFuState.isAnimating) {
-        g_kungFuState.transitionTime += deltaTime;
-        if (g_kungFuState.transitionTime >= g_kungFuState.maxTransitionTime) {
-            g_kungFuState.currentPose = g_kungFuState.targetPose;
-            g_kungFuState.isAnimating = false;
-            g_kungFuState.transitionTime = 0.0f;
-        }
-    }
-}
-
-void startKungFuPoseTransition(KungFuPose newPose) {
-    if (newPose != g_kungFuState.currentPose && !g_kungFuState.isAnimating) {
-        g_kungFuState.targetPose = newPose;
-        g_kungFuState.isAnimating = true;
-        g_kungFuState.transitionTime = 0.0f;
-    }
-}
-
-ArmPose interpolateArmPose(const ArmPose& from, const ArmPose& to, float t) {
-    ArmPose result;
-    
-    // Interpolate angles
-    result.shoulderPitch = from.shoulderPitch + (to.shoulderPitch - from.shoulderPitch) * t;
-    result.shoulderYaw = from.shoulderYaw + (to.shoulderYaw - from.shoulderYaw) * t;
-    result.shoulderRoll = from.shoulderRoll + (to.shoulderRoll - from.shoulderRoll) * t;
-    result.elbowBend = from.elbowBend + (to.elbowBend - from.elbowBend) * t;
-    result.wristPitch = from.wristPitch + (to.wristPitch - from.wristPitch) * t;
-    result.wristYaw = from.wristYaw + (to.wristYaw - from.wristYaw) * t;
-    result.wristRoll = from.wristRoll + (to.wristRoll - from.wristRoll) * t;
-    
-    // Interpolate finger curls and spreads
-    for (int i = 0; i < 5; i++) {
-        result.fingerCurl[i] = from.fingerCurl[i] + (to.fingerCurl[i] - from.fingerCurl[i]) * t;
-    }
-    for (int i = 0; i < 4; i++) {
-        result.fingerSpread[i] = from.fingerSpread[i] + (to.fingerSpread[i] - from.fingerSpread[i]) * t;
-    }
-    
-    return result;
-}
-
-KungFuPoseData getCurrentKungFuPose() {
-    KungFuPoseData currentPoseData = g_kungFuPoses[g_kungFuState.currentPose];
-    
-    // Add subtle breathing and flowing movements
-    float breathingPhase = sinf(g_kungFuState.animationPhase * 0.5f) * 2.0f;
-    float flowPhase = sinf(g_kungFuState.animationPhase * 0.3f) * 1.5f;
-    
-    // Apply breathing to torso
-    currentPoseData.torsoTwist += breathingPhase;
-    
-    // Add flowing movement to arms based on the pose
-    switch (g_kungFuState.currentPose) {
-        case KUNG_FU_TIGER_CLAW:
-            currentPoseData.leftArm.wristYaw += flowPhase * 3.0f;
-            currentPoseData.rightArm.wristYaw -= flowPhase * 3.0f;
-            break;
-        case KUNG_FU_CRANE_STANCE:
-            currentPoseData.leftArm.shoulderPitch += sinf(g_kungFuState.animationPhase * 0.4f) * 5.0f;
-            currentPoseData.rightArm.shoulderPitch += sinf(g_kungFuState.animationPhase * 0.4f + PI) * 5.0f;
-            break;
-        case KUNG_FU_SNAKE_HAND:
-            currentPoseData.leftArm.wristPitch += sinf(g_kungFuState.animationPhase * 0.6f) * 8.0f;
-            currentPoseData.leftArm.wristYaw += cosf(g_kungFuState.animationPhase * 0.8f) * 10.0f;
-            break;
-        case KUNG_FU_MANTIS_STRIKE:
-            currentPoseData.leftArm.shoulderYaw += flowPhase * 2.0f;
-            currentPoseData.rightArm.shoulderYaw -= flowPhase * 2.0f;
-            break;
-    }
-    
-    // If transitioning, interpolate between poses
-    if (g_kungFuState.isAnimating) {
-        float t = g_kungFuState.transitionTime / g_kungFuState.maxTransitionTime;
-        t = t * t * (3.0f - 2.0f * t); // Smooth step interpolation
-        
-        KungFuPoseData targetPoseData = g_kungFuPoses[g_kungFuState.targetPose];
-        
-        currentPoseData.leftArm = interpolateArmPose(currentPoseData.leftArm, targetPoseData.leftArm, t);
-        currentPoseData.rightArm = interpolateArmPose(currentPoseData.rightArm, targetPoseData.rightArm, t);
-        currentPoseData.torsoTwist = currentPoseData.torsoTwist + (targetPoseData.torsoTwist - currentPoseData.torsoTwist) * t;
-        currentPoseData.stanceWidth = currentPoseData.stanceWidth + (targetPoseData.stanceWidth - currentPoseData.stanceWidth) * t;
-    }
-    
-    return currentPoseData;
-}
-
-// Function to apply finger poses to hand joints
-void applyFingerPose(std::vector<HandJoint>& handJoints, const ArmPose& armPose, bool isRightHand) {
-    float flipSign = isRightHand ? -1.0f : 1.0f;
-    
-    // Apply finger curls (simplified - affects Z position to simulate bending)
-    // Thumb (joints 1-4)
-    for (int i = 1; i <= 4; i++) {
-        handJoints[i].position.z *= (1.0f - armPose.fingerCurl[0] * 0.3f);
-    }
-    
-    // Index finger (joints 5-8)
-    for (int i = 5; i <= 8; i++) {
-        handJoints[i].position.z *= (1.0f - armPose.fingerCurl[1] * 0.4f);
-    }
-    
-    // Middle finger (joints 9-12)
-    for (int i = 9; i <= 12; i++) {
-        handJoints[i].position.z *= (1.0f - armPose.fingerCurl[2] * 0.4f);
-    }
-    
-    // Ring finger (joints 13-16)
-    for (int i = 13; i <= 16; i++) {
-        handJoints[i].position.z *= (1.0f - armPose.fingerCurl[3] * 0.4f);
-    }
-    
-    // Pinky (joints 17-20)
-    for (int i = 17; i <= 20; i++) {
-        handJoints[i].position.z *= (1.0f - armPose.fingerCurl[4] * 0.4f);
-    }
-    
-    // Apply finger spread (affects X positions)
-    handJoints[5].position.x += armPose.fingerSpread[0] * 0.2f * flipSign;  // Index
-    handJoints[9].position.x += armPose.fingerSpread[1] * 0.1f * flipSign;  // Middle
-    handJoints[13].position.x -= armPose.fingerSpread[2] * 0.1f * flipSign; // Ring
-    handJoints[17].position.x -= armPose.fingerSpread[3] * 0.2f * flipSign; // Pinky
-}
 void initializeCharacterParts() {
     buildTriangles();
     computeVertexNormals();
@@ -668,7 +408,6 @@ void initializeCharacterParts() {
     InitializeHand2();
     InitializeArm();
     InitializeArm2();
-    InitializeKungFuPoses();
     
     // Initialize hand texture
     g_HandTexture = loadTexture("skin.bmp");
@@ -1632,19 +1371,106 @@ void drawShoulderSockets() {
     glPopMatrix();
 }
 
+// Draw Minecraft-style cube shoulder
+void drawCubeShoulder(float x, float y, float z, float width, float height, float depth) {
+    glPushMatrix();
+    glTranslatef(x, y, z);
+    
+    glColor3f(0.9f, 0.7f, 0.6f); // Skin color
+    
+    float w = width / 2.0f;
+    float h = height / 2.0f;
+    float d = depth / 2.0f;
+    
+    glBegin(GL_QUADS);
+    
+    // Front face
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(-w, -h, d);
+    glVertex3f(w, -h, d);
+    glVertex3f(w, h, d);
+    glVertex3f(-w, h, d);
+    
+    // Back face
+    glNormal3f(0.0f, 0.0f, -1.0f);
+    glVertex3f(-w, -h, -d);
+    glVertex3f(-w, h, -d);
+    glVertex3f(w, h, -d);
+    glVertex3f(w, -h, -d);
+    
+    // Left face
+    glNormal3f(-1.0f, 0.0f, 0.0f);
+    glVertex3f(-w, -h, -d);
+    glVertex3f(-w, -h, d);
+    glVertex3f(-w, h, d);
+    glVertex3f(-w, h, -d);
+    
+    // Right face
+    glNormal3f(1.0f, 0.0f, 0.0f);
+    glVertex3f(w, -h, -d);
+    glVertex3f(w, h, -d);
+    glVertex3f(w, h, d);
+    glVertex3f(w, -h, d);
+    
+    // Top face
+    glNormal3f(0.0f, 1.0f, 0.0f);
+    glVertex3f(-w, h, -d);
+    glVertex3f(-w, h, d);
+    glVertex3f(w, h, d);
+    glVertex3f(w, h, -d);
+    
+    // Bottom face
+    glNormal3f(0.0f, -1.0f, 0.0f);
+    glVertex3f(-w, -h, -d);
+    glVertex3f(w, -h, -d);
+    glVertex3f(w, -h, d);
+    glVertex3f(-w, -h, d);
+    
+    glEnd();
+    glPopMatrix();
+}
+
+// Draw spherical shoulder for more realistic upper arm connection
+void drawSphereShoulder(float x, float y, float z, float radius) {
+    glPushMatrix();
+    glTranslatef(x, y, z);
+    
+    glColor3f(0.9f, 0.7f, 0.6f); // Skin color
+    
+    // Draw sphere using triangular strips for smooth surface
+    const int slices = 16;  // More slices for smoother sphere
+    const int stacks = 12;  // More stacks for better quality
+    
+    for (int i = 0; i < stacks; ++i) {
+        float lat0 = PI * (-0.5f + (float)i / stacks);
+        float lat1 = PI * (-0.5f + (float)(i + 1) / stacks);
+        float y0 = radius * sinf(lat0);
+        float y1 = radius * sinf(lat1);
+        float r0 = radius * cosf(lat0);
+        float r1 = radius * cosf(lat1);
+        
+        glBegin(GL_TRIANGLE_STRIP);
+        for (int j = 0; j <= slices; ++j) {
+            float lng = 2 * PI * (float)j / slices;
+            float x0 = r0 * cosf(lng);
+            float z0 = r0 * sinf(lng);
+            float x1 = r1 * cosf(lng);
+            float z1 = r1 * sinf(lng);
+            
+            // Calculate normals for lighting
+            glNormal3f(x0/radius, y0/radius, z0/radius);
+            glVertex3f(x0, y0, z0);
+            glNormal3f(x1/radius, y1/radius, z1/radius);
+            glVertex3f(x1, y1, z1);
+        }
+        glEnd();
+    }
+    
+    glPopMatrix();
+}
+
 // --- Arm and Hand Drawing ---
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
-    // Get current kung fu pose
-    KungFuPoseData currentPose = getCurrentKungFuPose();
-    
-    // Create temporary hand copies for pose application
-    std::vector<HandJoint> leftHandPose = g_HandJoints;
-    std::vector<HandJoint> rightHandPose = g_HandJoints2;
-    
-    // Apply finger poses
-    applyFingerPose(leftHandPose, currentPose.leftArm, false);
-    applyFingerPose(rightHandPose, currentPose.rightArm, true);
-    
     // Enable texturing if available
     if (g_TextureEnabled && g_HandTexture != 0) {
         glEnable(GL_TEXTURE_2D);
@@ -1657,14 +1483,17 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
     // --- Draw Left Arm ---
     glPushMatrix();
-    // Attach to left shoulder socket
-    float shoulderOffset = R16 + 0.08f;
-    glTranslatef(-shoulderOffset, Y16, 0.0f);
+    // Attach to left spherical shoulder - connect to the outer edge of the sphere
+    float shoulderRadius = 0.25f; // Match the updated spherical shoulder radius
+    float shoulderXOffset = R16 + shoulderRadius + 0.05f; // Match the updated offset
+    float armConnectionOffset = shoulderXOffset + shoulderRadius; // Connect to outer edge of sphere
+    glTranslatef(-armConnectionOffset, Y16 + 0.05f, 0.0f); // Match updated Y position
     
-    // Apply kung fu pose rotations to left arm
-    glRotatef(currentPose.leftArm.shoulderPitch, 1.0f, 0.0f, 0.0f);
-    glRotatef(currentPose.leftArm.shoulderYaw, 0.0f, 1.0f, 0.0f);
-    glRotatef(currentPose.leftArm.shoulderRoll, 0.0f, 0.0f, 1.0f);
+    // Position arm to hang naturally down at the side with palm facing out
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);    // Pitch arm down to hang naturally
+    glRotatef(0.0f, 0.0f, 1.0f, 0.0f);     // No yaw rotation
+    glRotatef(20.0f, 0.0f, 0.0f, 1.0f);    // Roll to orient palm outward (changed from -20 to +20)
+    
 
     // Draw the arm with ARM_SCALE
     glPushMatrix();
@@ -1672,23 +1501,14 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     drawLowPolyArm(g_ArmJoints);
     glPopMatrix();
 
-    // Move to the elbow position for elbow bend
-    Vec3 elbowPos = g_ArmJoints[3].position; // Elbow joint
-    glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
-    glRotatef(currentPose.leftArm.elbowBend - 15.0f, 1.0f, 0.0f, 0.0f); // Subtract default bend
-    glTranslatef(-elbowPos.x * ARM_SCALE, -elbowPos.y * ARM_SCALE, -elbowPos.z * ARM_SCALE);
-
     // Move to the wrist position, taking ARM_SCALE into account
     Vec3 leftWristPos = g_ArmJoints.back().position;
     glTranslatef(leftWristPos.x * ARM_SCALE, leftWristPos.y * ARM_SCALE, leftWristPos.z * ARM_SCALE);
 
-    // Apply wrist rotations
-    glRotatef(currentPose.leftArm.wristPitch, 1.0f, 0.0f, 0.0f);
-    glRotatef(currentPose.leftArm.wristYaw, 0.0f, 1.0f, 0.0f);
-    glRotatef(currentPose.leftArm.wristRoll, 0.0f, 0.0f, 1.0f);
-
     // Draw the hand with HAND_SCALE
     glPushMatrix();
+    // Rotate the left hand to face palm outward
+    glRotatef(90.0f, 0.0f, 0.0f, 1.0f);    // Rotate hand 180 degrees around Z-axis to face palm outward
     glScalef(HAND_SCALE, HAND_SCALE, HAND_SCALE);
     
     // Re-enable texture for hand
@@ -1698,25 +1518,25 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glColor3f(1.0f, 1.0f, 1.0f);
     }
     
-    drawSkinnedPalm(leftHandPose);
-    drawLowPolyThumb(leftHandPose);
-    drawLowPolyFinger(leftHandPose, 5, 6, 7, 8);
-    drawLowPolyFinger(leftHandPose, 9, 10, 11, 12);
-    drawLowPolyFinger(leftHandPose, 13, 14, 15, 16);
-    drawLowPolyFinger(leftHandPose, 17, 18, 19, 20);
+    drawSkinnedPalm(g_HandJoints);
+    drawLowPolyThumb(g_HandJoints);
+    drawLowPolyFinger(g_HandJoints, 5, 6, 7, 8);
+    drawLowPolyFinger(g_HandJoints, 9, 10, 11, 12);
+    drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
+    drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
     glPopMatrix();
 
     glPopMatrix();
 
     // --- Draw Right Arm ---
     glPushMatrix();
-    // Attach to right shoulder socket
-    glTranslatef(shoulderOffset, Y16, 0.0f);
+    // Attach to right shoulder edge - connect to the outer edge of the realistic shoulder
+    glTranslatef(armConnectionOffset, Y16 + 0.05f, 0.0f); // Match updated Y position
     
-    // Apply kung fu pose rotations to right arm
-    glRotatef(currentPose.rightArm.shoulderPitch, 1.0f, 0.0f, 0.0f);
-    glRotatef(currentPose.rightArm.shoulderYaw, 0.0f, 1.0f, 0.0f);
-    glRotatef(currentPose.rightArm.shoulderRoll, 0.0f, 0.0f, 1.0f);
+    // Position arm to hang naturally down at the side with palm facing out
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);    // Pitch arm down to hang naturally
+    glRotatef(0.0f, 0.0f, 1.0f, 0.0f);     // No yaw rotation
+    glRotatef(-20.0f, 0.0f, 0.0f, 1.0f);   // Roll to orient palm outward (changed from +20 to -20)
 
     // Draw the arm with ARM_SCALE
     glPushMatrix();
@@ -1724,23 +1544,14 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     drawLowPolyArm(g_ArmJoints2);
     glPopMatrix();
 
-    // Move to the elbow position for elbow bend
-    Vec3 rightElbowPos = g_ArmJoints2[3].position; // Elbow joint
-    glTranslatef(rightElbowPos.x * ARM_SCALE, rightElbowPos.y * ARM_SCALE, rightElbowPos.z * ARM_SCALE);
-    glRotatef(currentPose.rightArm.elbowBend - 15.0f, 1.0f, 0.0f, 0.0f); // Subtract default bend
-    glTranslatef(-rightElbowPos.x * ARM_SCALE, -rightElbowPos.y * ARM_SCALE, -rightElbowPos.z * ARM_SCALE);
-
     // Move to the wrist position, taking ARM_SCALE into account
     Vec3 rightWristPos = g_ArmJoints2.back().position;
     glTranslatef(rightWristPos.x * ARM_SCALE, rightWristPos.y * ARM_SCALE, rightWristPos.z * ARM_SCALE);
 
-    // Apply wrist rotations
-    glRotatef(currentPose.rightArm.wristPitch, 1.0f, 0.0f, 0.0f);
-    glRotatef(currentPose.rightArm.wristYaw, 0.0f, 1.0f, 0.0f);
-    glRotatef(currentPose.rightArm.wristRoll, 0.0f, 0.0f, 1.0f);
-
     // Draw the hand with HAND_SCALE
     glPushMatrix();
+    // Rotate the right hand to face palm outward
+    glRotatef(-90.0f, 0.0f, 0.0f, 1.0f);   // Rotate hand -90 degrees around Y-axis to face palm outward
     glScalef(HAND_SCALE, HAND_SCALE, HAND_SCALE);
     
     // Re-enable texture for hand
@@ -1750,12 +1561,12 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glColor3f(1.0f, 1.0f, 1.0f);
     }
     
-    drawSkinnedPalm2(rightHandPose);
-    drawLowPolyThumb(rightHandPose);
-    drawLowPolyFinger(rightHandPose, 5, 6, 7, 8);
-    drawLowPolyFinger(rightHandPose, 9, 10, 11, 12);
-    drawLowPolyFinger(rightHandPose, 13, 14, 15, 16);
-    drawLowPolyFinger(rightHandPose, 17, 18, 19, 20);
+    drawSkinnedPalm2(g_HandJoints2);
+    drawLowPolyThumb(g_HandJoints2);
+    drawLowPolyFinger(g_HandJoints2, 5, 6, 7, 8);
+    drawLowPolyFinger(g_HandJoints2, 9, 10, 11, 12);
+    drawLowPolyFinger(g_HandJoints2, 13, 14, 15, 16);
+    drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
     glPopMatrix();
 
     glPopMatrix();
@@ -1773,6 +1584,17 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle) {
     drawArmsAndHands(-leftLegAngle, -rightLegAngle);
     drawTorso();
     drawSkirt(leftLegAngle, rightLegAngle);
+    
+    // Draw spherical shoulders for realistic upper arm connection
+    float shoulderRadius = 0.25f;  // Increased radius for longer/wider shoulders
+    float shoulderY = Y16 + 0.05f; // Slightly raised for better connection to neck
+    float shoulderXOffset = R16 + shoulderRadius + 0.05f; // Position based on radius
+    
+    // Left spherical shoulder
+    drawSphereShoulder(-shoulderXOffset, shoulderY, 0.0f, shoulderRadius);
+    
+    // Right spherical shoulder
+    drawSphereShoulder(shoulderXOffset, shoulderY, 0.0f, shoulderRadius);
 
     glDisable(GL_LIGHTING); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glPushMatrix();
@@ -1849,7 +1671,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
         if (dt > 0.1f) dt = 0.1f;
 
         updateCharacter(dt);
-        updateKungFuAnimation(dt);
 
         { Vec3 eye; {eye.x = gTarget.x + gDist * cos(gPitch) * sin(gYaw); eye.y = gTarget.y + gDist * sin(gPitch); eye.z = gTarget.z + gDist * cos(gPitch) * cos(gYaw); } Vec3 f = { gTarget.x - eye.x,gTarget.y - eye.y,gTarget.z - eye.z }; float fl = sqrt(f.x * f.x + f.y * f.y + f.z * f.z); if (fl > 1e-6) { f.x /= fl; f.y /= fl; f.z /= fl; } Vec3 r = { f.z,0,-f.x }; float moveStep = gDist * 0.8f * dt; if (keyW)gTarget.y += moveStep; if (keyS)gTarget.y -= moveStep; if (keyA) { gTarget.x -= r.x * moveStep; gTarget.z -= r.z * moveStep; }if (keyD) { gTarget.x += r.x * moveStep; gTarget.z += r.z * moveStep; } }
         display(); SwapBuffers(hdc);
@@ -1893,19 +1714,6 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
         else if (wParam == VK_LEFT) keyLeft = true; else if (wParam == VK_RIGHT) keyRight = true;
         else if (wParam == VK_SHIFT) keyShift = true;
-        // Kung Fu Controls
-        else if (wParam == '3') { key1 = true; startKungFuPoseTransition(KUNG_FU_READY_STANCE); }
-        else if (wParam == '4') { key2 = true; startKungFuPoseTransition(KUNG_FU_PUNCH_LEFT); }
-        else if (wParam == '5') { key3 = true; startKungFuPoseTransition(KUNG_FU_PUNCH_RIGHT); }
-        else if (wParam == '6') { key4 = true; startKungFuPoseTransition(KUNG_FU_BLOCK_HIGH); }
-        else if (wParam == '7') { key5 = true; startKungFuPoseTransition(KUNG_FU_BLOCK_LOW); }
-        else if (wParam == '8') { key6 = true; startKungFuPoseTransition(KUNG_FU_TIGER_CLAW); }
-        else if (wParam == '9') { key7 = true; startKungFuPoseTransition(KUNG_FU_CRANE_STANCE); }
-        else if (wParam == '0') { key8 = true; startKungFuPoseTransition(KUNG_FU_DRAGON_FIST); }
-        else if (wParam == 'Q') { keyQ = true; startKungFuPoseTransition(KUNG_FU_SNAKE_HAND); }
-        else if (wParam == 'E') { keyE = true; startKungFuPoseTransition(KUNG_FU_MANTIS_STRIKE); }
-        else if (wParam == 'T') { keyT = true; startKungFuPoseTransition(KUNG_FU_MEDITATION); }
-        else if (wParam == 'F') { keyF = true; startKungFuPoseTransition(KUNG_FU_IDLE); }
         return 0;
     case WM_KEYUP:
         if (wParam == 'W') keyW = false; else if (wParam == 'S') keyS = false;
@@ -1913,13 +1721,6 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == VK_UP) keyUp = false; else if (wParam == VK_DOWN) keydown = false;
         else if (wParam == VK_LEFT) keyLeft = false; else if (wParam == VK_RIGHT) keyRight = false;
         else if (wParam == VK_SHIFT) keyShift = false;
-        // Kung Fu Controls
-        else if (wParam == '3') key1 = false; else if (wParam == '4') key2 = false;
-        else if (wParam == '5') key3 = false; else if (wParam == '6') key4 = false;
-        else if (wParam == '7') key5 = false; else if (wParam == '8') key6 = false;
-        else if (wParam == '9') key7 = false; else if (wParam == '0') key8 = false;
-        else if (wParam == 'Q') keyQ = false; else if (wParam == 'E') keyE = false;
-        else if (wParam == 'T') keyT = false; else if (wParam == 'F') keyF = false;
         return 0;
     default: return DefWindowProc(hWnd, msg, wParam, lParam);
     }

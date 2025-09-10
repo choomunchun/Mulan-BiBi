@@ -1,4 +1,3 @@
-﻿
 #include <Windows.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
@@ -12,7 +11,7 @@
 
 #define WINDOW_TITLE "Anatomically-Correct Leg Viewer (Final Rebuild)"
 
-// --------------------- 全局状态 ---------------------
+// --------------------- Global State ---------------------
 int   gWidth = 800;
 int   gHeight = 600;
 
@@ -26,16 +25,16 @@ struct Vec3 { float x, y, z; };
 Vec3  gTarget = { 0.0f, 4.0f, 0.0f };
 float gYaw = 0.2f;
 float gPitch = 0.1f;
-float gDist = 14.0f;
+float gDist = 18.0f; // Increased distance slightly to see both legs
 
 bool keyW = false, keyS = false, keyA = false, keyD = false;
 
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
-// --------------------- 顶点/面数据 (全新重构) ---------------------
+// --------------------- Vertex/Face Data ---------------------
 struct Vec3f { float x, y, z; };
 
-// 顶点 (全新、系统化构建)
+// Vertices for the left leg model
 const Vec3f gFootVertices[] = {
     // Toes (5 distinct toes)
     // Big Toe
@@ -75,7 +74,7 @@ const Vec3f gFootVertices[] = {
     {0.0f, 8.0f, 0.1f}, {-0.7f, 7.9f, -0.1f}, {-0.75f, 8.1f, -0.4f}, {0.0f, 8.2f, -0.5f}, {0.75f, 8.1f, -0.4f}, {0.7f, 7.9f, -0.1f}, // 77-82
 };
 
-// 面 (全新、系统化连接)
+// Faces connecting the vertices
 const int gFootQuads[][4] = {
     // Toes
     {0,1,2,3}, {4,5,1,0}, {7,6,2,3}, {4,0,3,7}, {5,4,7,6}, // Big Toe
@@ -105,7 +104,7 @@ const int gFootQuads[][4] = {
     {50, 40, 46, 52}, {50, 42, 48, 51}, {50, 40, 52,-1},{50, 42, 51, -1},
 
 
-    // --- Leg (same connection logic as before, but with new indices) ---
+    // Leg
     {53, 59, 60, 54}, {54, 60, 61, 55}, {55, 61, 62, 56}, {56, 62, 63, 57}, {57, 63, 64, 58}, {58, 64, 59, 53},
     {59, 65, 66, 60}, {60, 66, 67, 61}, {61, 67, 68, 62}, {62, 68, 69, 63}, {63, 69, 70, 64}, {64, 70, 65, 59},
     {65, 71, 72, 66}, {66, 72, 73, 67}, {67, 73, 74, 68}, {68, 74, 75, 69}, {69, 75, 76, 70}, {70, 76, 71, 65},
@@ -114,7 +113,7 @@ const int gFootQuads[][4] = {
     {82, 81, 80, -1}, {82, 80, 79, -1}, {82, 79, 78, -1}, {82, 78, 77, -1},
 };
 
-// --------------------- 三角化 + 法线计算 ---------------------
+// --------------------- Triangulation + Normal Calculation ---------------------
 struct Tri { int a, b, c; };
 std::vector<Tri>   gTris;
 std::vector<Vec3f> gVertexNormals;
@@ -201,12 +200,13 @@ void computeVertexNormals() {
     }
 }
 
-// --------------------- 前置声明 ---------------------
+// --------------------- Forward Declarations ---------------------
 LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 bool initPixelFormat(HDC hdc);
 void display();
 void updateCameraByKeys(float dt);
 void computeEye(Vec3& eye);
+void drawLeg(bool mirrorX); // NEW: Forward declaration for our drawing function
 
 // --------------------- WinMain ---------------------
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow)
@@ -268,7 +268,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow)
     return 0;
 }
 
-// --------------------- 窗口过程 ---------------------
+// --------------------- Window Procedure ---------------------
 LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
@@ -318,7 +318,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE) PostQuitMessage(0);
-        else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 14.0f; gTarget = { 0.0f, 4.0f, 0.0f }; }
+        else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 18.0f; gTarget = { 0.0f, 4.0f, 0.0f }; }
         else if (wParam == '1') { gShowWireframe = !gShowWireframe; }
         else if (wParam == 'W')  keyW = true;
         else if (wParam == 'S')  keyS = true;
@@ -337,7 +337,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     }
 }
 
-// --------------------- OpenGL 像素格式 ---------------------
+// --------------------- OpenGL Pixel Format ---------------------
 bool initPixelFormat(HDC hdc)
 {
     PIXELFORMATDESCRIPTOR pfd{};
@@ -355,7 +355,7 @@ bool initPixelFormat(HDC hdc)
     return SetPixelFormat(hdc, pf, &pfd) == TRUE;
 }
 
-// --------------------- 摄像机控制 ---------------------
+// --------------------- Camera Control ---------------------
 void computeEye(Vec3& eye)
 {
     float cp = std::cos(gPitch), sp = std::sin(gPitch);
@@ -393,10 +393,40 @@ void updateCameraByKeys(float dt)
     if (keyD) { gTarget.x += right.x * moveStep;   gTarget.y += right.y * moveStep;   gTarget.z += right.z * moveStep; }
 }
 
-// --------------------- 绘制 ---------------------
+// --------------------- Drawing ---------------------
+
+/**
+ * @brief Draws the leg model. Can mirror the model across the YZ plane to create a right leg.
+ * @param mirrorX If true, the X coordinates of vertices and normals are flipped.
+ */
+void drawLeg(bool mirrorX)
+{
+    float mirror = mirrorX ? -1.0f : 1.0f;
+
+    glBegin(GL_TRIANGLES);
+    for (const auto& t : gTris)
+    {
+        const Vec3f& n0 = gVertexNormals[t.a];
+        const Vec3f& v0 = gFootVertices[t.a];
+        glNormal3f(n0.x * mirror, n0.y, n0.z);
+        glVertex3f(v0.x * mirror, v0.y, v0.z);
+
+        const Vec3f& n1 = gVertexNormals[t.b];
+        const Vec3f& v1 = gFootVertices[t.b];
+        glNormal3f(n1.x * mirror, n1.y, n1.z);
+        glVertex3f(v1.x * mirror, v1.y, v1.z);
+
+        const Vec3f& n2 = gVertexNormals[t.c];
+        const Vec3f& v2 = gFootVertices[t.c];
+        glNormal3f(n2.x * mirror, n2.y, n2.z);
+        glVertex3f(v2.x * mirror, v2.y, v2.z);
+    }
+    glEnd();
+}
+
 void display()
 {
-    glClearColor(0.1f, 0.1f, 0.12f, 1.0f); // 深色背景以突出模型
+    glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glEnable(GL_DEPTH_TEST);
@@ -412,49 +442,35 @@ void display()
 
     glPolygonMode(GL_FRONT_AND_BACK, gShowWireframe ? GL_LINE : GL_FILL);
 
-    // 关闭背面剔除
     glDisable(GL_CULL_FACE);
 
     if (!gShowWireframe) { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1.f, 1.f); }
 
-    // 光照 (移除高光)
+    // Lighting
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
     glEnable(GL_COLOR_MATERIAL);
     float lightPos[] = { 10.f, 10.f, 15.f, 1.f };
-    float ambientLight[] = { 0.4f, 0.4f, 0.4f, 1.f }; // 增强环境光
-    float diffuseLight[] = { 0.6f, 0.6f, 0.6f, 1.f }; // 减弱漫反射光
+    float ambientLight[] = { 0.4f, 0.4f, 0.4f, 1.f };
+    float diffuseLight[] = { 0.6f, 0.6f, 0.6f, 1.f };
     glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight);
     glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
 
-    // 移除材质属性设置，使用纯色
-    glColor3f(0.8f, 0.8f, 0.8f); // 中性灰色
+    glColor3f(0.8f, 0.8f, 0.8f);
 
-    // 绘制模型
+    // --- Draw Left Leg ---
     glPushMatrix();
-    glTranslatef(0.0f, -4.5f, 0.0f); // 调整模型位置以适应新尺寸
+    glTranslatef(0.0f, -4.5f, 0.0f); // Center model vertically
+    glTranslatef(-0.75f, 0.0f, 0.0f); // Position left leg
+    drawLeg(false); // Draw original model
+    glPopMatrix();
 
-    glBegin(GL_TRIANGLES);
-    for (const auto& t : gTris)
-    {
-        const Vec3f& n0 = gVertexNormals[t.a];
-        const Vec3f& v0 = gFootVertices[t.a];
-        glNormal3f(n0.x, n0.y, n0.z);
-        glVertex3f(v0.x, v0.y, v0.z);
-
-        const Vec3f& n1 = gVertexNormals[t.b];
-        const Vec3f& v1 = gFootVertices[t.b];
-        glNormal3f(n1.x, n1.y, n1.z);
-        glVertex3f(v1.x, v1.y, v1.z);
-
-        const Vec3f& n2 = gVertexNormals[t.c];
-        const Vec3f& v2 = gFootVertices[t.c];
-        glNormal3f(n2.x, n2.y, n2.z);
-        glVertex3f(v2.x, v2.y, v2.z);
-    }
-    glEnd();
-
+    // --- Draw Right Leg ---
+    glPushMatrix();
+    glTranslatef(0.0f, -4.5f, 0.0f); // Center model vertically
+    glTranslatef(0.75f, 0.0f, 0.0f); // Position right leg
+    drawLeg(true);  // Draw mirrored model
     glPopMatrix();
 
     glDisable(GL_LIGHTING);
@@ -462,4 +478,3 @@ void display()
 
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
-

@@ -10,6 +10,11 @@
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
 
+// Define GL_BGR if not available
+#ifndef GL_BGR
+#define GL_BGR 0x80E0
+#endif
+
 #define WINDOW_TITLE "Full Body Model Viewer"
 
 // ===================================================================
@@ -50,7 +55,7 @@ bool keyF = false, keyG = false, keyH = false, keyJ = false;
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
 // --- Proportions Control ---
-#define LEG_SCALE 0.9f
+#define LEG_SCALE 0.9f  // Shorter legs for better body-to-leg ratio
 #define BODY_SCALE 3.5f
 #define ARM_SCALE 0.10f
 #define HAND_SCALE 0.15f
@@ -160,7 +165,7 @@ GLuint loadTexture(LPCSTR filename) {
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BMP.bmWidth, BMP.bmHeight, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, BMP.bmBits);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BMP.bmWidth, BMP.bmHeight, 0, GL_BGR, GL_UNSIGNED_BYTE, BMP.bmBits);
 
     DeleteObject(hBMP);
     return texture;
@@ -245,45 +250,47 @@ GLUquadric* g_headQuadric = nullptr;
 #define S15 -0.3826834f
 const float segCos[] = { C0,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14,C15 };
 const float segSin[] = { S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15 };
-#define R0 0.38f
-#define R1 0.37f
-#define R2 0.36f
-#define R3 0.35f
-#define R4 0.34f
-#define R5 0.32f
-#define R6 0.30f
-#define R7 0.28f
-#define R8 0.27f
-#define R9 0.28f
-#define R10 0.29f
-#define R11 0.30f
-#define R12 0.29f
-#define R13 0.27f
-#define R14 0.24f
-#define R15 0.21f
-#define R16 0.19f
-#define R17 0.16f
-#define R18 0.133f
+#define R0 0.50f  // Hip area - wider for better leg connection
+#define R1 0.49f
+#define R2 0.48f
+#define R3 0.47f
+#define R4 0.46f
+#define R5 0.43f  // Waist area - slightly narrower for feminine shape
+#define R6 0.40f
+#define R7 0.37f
+#define R8 0.35f  // Lower torso - wider for natural leg attachment
+#define R9 0.37f
+#define R10 0.39f
+#define R11 0.41f  // Upper torso - broader for mature proportions
+#define R12 0.45f  // Upper torso - broader for strong shoulders
+#define R13 0.44f  // Pre-shoulder area - smooth transition
+#define R14 0.43f  // Shoulder area - gentle rise
+#define R15 0.40f  // Shoulder peak - feminine curve
+#define R16 0.28f  // Upper shoulder slope - slimmer feminine transition
+#define R17 0.16f  // Lower shoulder slope - elegant curve to neck
+#define R18 0.09f  // Neck base - slim feminine neck
+#define R19 0.07f  // Upper neck - connects to head
 #define Y0 0.00f
-#define Y1 0.05f
-#define Y2 0.10f
-#define Y3 0.15f
-#define Y4 0.20f
-#define Y5 0.28f
-#define Y6 0.36f
-#define Y7 0.44f
-#define Y8 0.52f
-#define Y9 0.60f
-#define Y10 0.68f
-#define Y11 0.76f
-#define Y12 0.82f
-#define Y13 0.88f
-#define Y14 0.92f
-#define Y15 0.96f
-#define Y16 0.98f
-#define Y17 1.04f
-#define Y18 1.10f
-#define HEAD_CENTER_Y 1.30f
+#define Y1 0.08f
+#define Y2 0.16f
+#define Y3 0.24f
+#define Y4 0.32f
+#define Y5 0.45f
+#define Y6 0.58f
+#define Y7 0.70f
+#define Y8 0.83f
+#define Y9 0.96f
+#define Y10 1.09f
+#define Y11 1.22f
+#define Y12 1.31f
+#define Y13 1.41f
+#define Y14 1.47f
+#define Y15 1.54f
+#define Y16 1.58f
+#define Y17 1.66f  // Upper shoulder slope - feminine curve
+#define Y18 1.76f  // Lower shoulder slope - elegant transition
+#define Y19 1.88f  // Upper neck - connects to head
+#define HEAD_CENTER_Y 1.92f  // Perfectly centered on torso middle, sits naturally on neck
 #define HEAD_RADIUS   0.24f
 #define QUAD(r1,y1,r2,y2,cA,sA,cB,sB) glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cA),(y2),(r2)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cB),(y1),(r1)*(sB));
 #define BAND(rA,yA,rB,yB) QUAD(rA,yA,rB,yB,C0,S0,C1,S1) QUAD(rA,yA,rB,yB,C1,S1,C2,S2) QUAD(rA,yA,rB,yB,C2,S2,C3,S3) QUAD(rA,yA,rB,yB,C3,S3,C4,S4) QUAD(rA,yA,rB,yB,C4,S4,C5,S5) QUAD(rA,yA,rB,yB,C5,S5,C6,S6) QUAD(rA,yA,rB,yB,C6,S6,C7,S7) QUAD(rA,yA,rB,yB,C7,S7,C8,S8) QUAD(rA,yA,rB,yB,C8,S8,C9,S9) QUAD(rA,yA,rB,yB,C9,S9,C10,S10) QUAD(rA,yA,rB,yB,C10,S10,C11,S11) QUAD(rA,yA,rB,yB,C11,S11,C12,S12) QUAD(rA,yA,rB,yB,C12,S12,C13,S13) QUAD(rA,yA,rB,yB,C13,S13,C14,S14) QUAD(rA,yA,rB,yB,C14,S14,C15,S15) QUAD(rA,yA,rB,yB,C15,S15,C0,S0)
@@ -310,7 +317,16 @@ void drawLeg(bool mirrorX, float thighAngle, float kneeAngle); // Modify this li
 void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle); // Updated signature
 void drawSkirt(float leftLegAngle, float rightLegAngle);
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle);
-void drawShoulderSockets();
+void drawInternalShoulderJoints();
+void drawCurvedBand(float rA, float yA, float rB, float yB);
+void drawCustomFaceShape();
+void drawMulanHead();
+void drawMulanFace();
+void drawMulanEyes();
+void drawMulanEyebrows();
+void drawMulanNose();
+void drawMulanMouth();
+void drawMulanHair();
 
 // --- Math & Model Building ---
 Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
@@ -1054,7 +1070,7 @@ static void drawSkinnedPalm(const std::vector<HandJoint>& joints) {
     for (int col = 0; col < GRID_WIDTH - 1; col++) {
         Vec3 edge1 = { palmGrid[0][col + 1].x - palmGrid[0][col].x, palmGrid[0][col + 1].y - palmGrid[0][col].y, palmGrid[0][col + 1].z - palmGrid[0][col].z };
         Vec3 edge2 = { backGrid[0][col].x - palmGrid[0][col].x, backGrid[0][col].y - palmGrid[0][col].y, backGrid[0][col].z - palmGrid[0][col].z };
-        Vec3 normal = { edge2.y * edge1.z - edge2.z * edge1.y, edge2.z * edge1.x - edge2.x * edge1.z, edge2.x * edge1.y - edge2.y * edge1.x };
+        Vec3 normal = { edge2.y * edge1.z - edge2.z * edge1.y, edge2.z * edge1.x - edge2.x * edge1.z, edge2.x * edge1.y - edge2.y * edge2.x };
         float len = sqrtf(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
         if (len > 0.001f) { normal.x /= len; normal.y /= len; normal.z /= len; }
 
@@ -1298,17 +1314,67 @@ static void drawLowPolyThumb(const std::vector<HandJoint>& joints) {
 
 // leg
 
-// This helper just draws the raw leg model triangles.
+// Helper function to make leg cross-sections more round
+Vec3f makeRoundedVertex(const Vec3f& originalVertex) {
+    Vec3f rounded = originalVertex;
+    
+    // Get the radius from center at this Y level
+    float radius = sqrtf(originalVertex.x * originalVertex.x + originalVertex.z * originalVertex.z);
+    
+    // Calculate the angle around the Y axis
+    float angle = atan2f(originalVertex.z, originalVertex.x);
+    
+    // Determine target radius based on Y position for different leg sections (slimmer)
+    float targetRadius;
+    if (originalVertex.y < 2.0f) {
+        // Foot area - keep original shape for foot details
+        return originalVertex;
+    } else if (originalVertex.y < 4.0f) {
+        // Ankle/lower calf - gradually round and slim
+        targetRadius = 0.2f + (originalVertex.y - 2.0f) * 0.05f; // 0.2 to 0.3 (was 0.3 to 0.5)
+    } else if (originalVertex.y < 6.0f) {
+        // Mid calf - rounder but slimmer
+        targetRadius = 0.3f + (originalVertex.y - 4.0f) * 0.05f; // 0.3 to 0.4 (was 0.5 to 0.6)
+    } else {
+        // Upper leg/thigh - roundest but much slimmer
+        targetRadius = 0.4f + (originalVertex.y - 6.0f) * 0.03f; // 0.4 to 0.46+ (was 0.6 to 0.7+)
+    }
+    
+    // If original radius is very small, don't modify much (preserve center line)
+    if (radius < 0.1f) {
+        return originalVertex;
+    }
+    
+    // Apply circular transformation
+    float blendFactor = 0.7f; // How much to round (0.7 = 70% round, 30% original)
+    float newRadius = radius * (1.0f - blendFactor) + targetRadius * blendFactor;
+    
+    // Reconstruct position with new radius
+    rounded.x = newRadius * cosf(angle);
+    rounded.z = newRadius * sinf(angle);
+    // Keep original Y coordinate
+    rounded.y = originalVertex.y;
+    
+    return rounded;
+}
+
+// This helper just draws the raw leg model triangles with rounded cross-sections.
 void drawLegModel(bool mirrorX) {
     float mirror = mirrorX ? -1.0f : 1.0f;
     glColor3f(0.85f, 0.64f, 0.52f);
     glBegin(GL_TRIANGLES);
     for (const auto& t : gTris) {
-        const Vec3f& n0 = gVertexNormals[t.a]; const Vec3f& v0 = gFootVertices[t.a];
+        // Apply rounding to vertices
+        const Vec3f& n0 = gVertexNormals[t.a]; 
+        Vec3f v0 = makeRoundedVertex(gFootVertices[t.a]);
         glNormal3f(n0.x * mirror, n0.y, n0.z); glVertex3f(v0.x * mirror, v0.y * LEG_SCALE, v0.z);
-        const Vec3f& n1 = gVertexNormals[t.b]; const Vec3f& v1 = gFootVertices[t.b];
+        
+        const Vec3f& n1 = gVertexNormals[t.b]; 
+        Vec3f v1 = makeRoundedVertex(gFootVertices[t.b]);
         glNormal3f(n1.x * mirror, n1.y, n1.z); glVertex3f(v1.x * mirror, v1.y * LEG_SCALE, v1.z);
-        const Vec3f& n2 = gVertexNormals[t.c]; const Vec3f& v2 = gFootVertices[t.c];
+        
+        const Vec3f& n2 = gVertexNormals[t.c]; 
+        Vec3f v2 = makeRoundedVertex(gFootVertices[t.c]);
         glNormal3f(n2.x * mirror, n2.y, n2.z); glVertex3f(v2.x * mirror, v2.y * LEG_SCALE, v2.z);
     }
     glEnd();
@@ -1316,7 +1382,9 @@ void drawLegModel(bool mirrorX) {
 
 // MODIFIED: This function now takes separate thigh and knee angles.
 void drawLeg(bool mirrorX, float thighAngle, float kneeAngle) {
-    const float hipHeight = 8.2f * LEG_SCALE;
+    // Hip connects at the top of the leg mesh (8.2f scaled)
+    // This matches the body positioning in drawBodyAndHead
+    const float hipHeight = 8.2f * LEG_SCALE; // Top of leg mesh connects to body bottom
     const float kneeHeight = 3.9f * LEG_SCALE; // The Y-coordinate of the knee joint
 
     // --- PART 1: Draw Upper Leg (Thigh) ---
@@ -1366,8 +1434,8 @@ void drawLeg(bool mirrorX, float thighAngle, float kneeAngle) {
 void drawSkirt(float leftLegAngle, float rightLegAngle) {
     const float topR = R8 + 0.11f;
     const float topY = Y8 - 0.51f;
-    const float botR = 0.82f;
-    const float botY = -1.7f;
+    const float botR = 0.65f;  // Reduced from 0.82f for shorter skirt
+    const float botY = -0.8f;  // Raised from -1.7f for shorter length
     float deltaY = topY - botY;
     float deltaR = botR - topR;
 
@@ -1402,21 +1470,21 @@ void drawSkirt(float leftLegAngle, float rightLegAngle) {
         // --- MODIFIED DEFORMATION LOGIC ---
         float angleA = (v_bot_A.x <= 0) ? leftLegAngle : rightLegAngle;
         if (angleA > 0) { // Leg is swinging forward
-            float front_weight = max(0.0f, sA); // Weight is 1 at front, 0 at sides
+            float front_weight = (sA > 0.0f) ? sA : 0.0f; // Weight is 1 at front, 0 at sides
             v_bot_A.z += sin(angleA * PI / 180.0f) * front_strength * front_weight;
         }
         else { // Leg is swinging backward
-            float back_weight = max(0.0f, -sA); // Weight is 1 at back, 0 at sides
+            float back_weight = (-sA > 0.0f) ? -sA : 0.0f; // Weight is 1 at back, 0 at sides
             v_bot_A.z += sin(angleA * PI / 180.0f) * back_strength * back_weight;
         }
 
         float angleB = (v_bot_B.x <= 0) ? leftLegAngle : rightLegAngle;
         if (angleB > 0) { // Leg is swinging forward
-            float front_weight = max(0.0f, sB);
+            float front_weight = (sB > 0.0f) ? sB : 0.0f;
             v_bot_B.z += sin(angleB * PI / 180.0f) * front_strength * front_weight;
         }
         else { // Leg is swinging backward
-            float back_weight = max(0.0f, -sB);
+            float back_weight = (-sB > 0.0f) ? -sB : 0.0f;
             v_bot_B.z += sin(angleB * PI / 180.0f) * back_strength * back_weight;
         }
 
@@ -1437,52 +1505,631 @@ void drawSkirt(float leftLegAngle, float rightLegAngle) {
 }
 
 // --- Body and Head Drawing ---
-void drawFaceFeatures() {
-    const float eyeY = HEAD_CENTER_Y + HEAD_RADIUS * 0.05f; const float eyeZ = HEAD_RADIUS * 0.86f; const float eyeR = 0.026f;
-    glColor3f(0.1f, 0.1f, 0.1f);
-    glBegin(GL_POLYGON); for (float a = 0; a < 6.28; a += 0.5)glVertex3f(-0.09f + eyeR * cos(a), eyeY + eyeR * sin(a), eyeZ); glEnd();
-    glBegin(GL_POLYGON); for (float a = 0; a < 6.28; a += 0.5)glVertex3f(0.09f + eyeR * cos(a), eyeY + eyeR * sin(a), eyeZ); glEnd();
-    glColor3f(0.8f, 0.2f, 0.2f);
-    glBegin(GL_LINE_STRIP); glVertex3f(-0.08f, eyeY - 0.10f, eyeZ); glVertex3f(-0.05f, eyeY - 0.12f, eyeZ); glVertex3f(0.05f, eyeY - 0.12f, eyeZ); glVertex3f(0.08f, eyeY - 0.10f, eyeZ); glEnd();
+// Draw Mulan's detailed facial features
+void drawMulanEyes() {
+    const float headR = HEAD_RADIUS;
+    const float eyeY = headR * 0.2f; // Position relative to head center
+    const float eyeZ = headR * 0.95f; // Moved forward to face surface
+    const float eyeSpacing = 0.1f; // Slightly wider spacing
+    
+    // Eye whites (almond shaped for East Asian features)
+    glColor3f(0.95f, 0.95f, 0.95f);
+    
+    // Left eye white
+    glBegin(GL_POLYGON);
+    glVertex3f(-eyeSpacing - 0.04f, eyeY + 0.02f, eyeZ);
+    glVertex3f(-eyeSpacing - 0.02f, eyeY + 0.035f, eyeZ);
+    glVertex3f(-eyeSpacing + 0.02f, eyeY + 0.035f, eyeZ);
+    glVertex3f(-eyeSpacing + 0.04f, eyeY + 0.02f, eyeZ);
+    glVertex3f(-eyeSpacing + 0.02f, eyeY - 0.02f, eyeZ);
+    glVertex3f(-eyeSpacing - 0.02f, eyeY - 0.02f, eyeZ);
+    glEnd();
+    
+    // Right eye white
+    glBegin(GL_POLYGON);
+    glVertex3f(eyeSpacing - 0.04f, eyeY + 0.02f, eyeZ);
+    glVertex3f(eyeSpacing - 0.02f, eyeY + 0.035f, eyeZ);
+    glVertex3f(eyeSpacing + 0.02f, eyeY + 0.035f, eyeZ);
+    glVertex3f(eyeSpacing + 0.04f, eyeY + 0.02f, eyeZ);
+    glVertex3f(eyeSpacing + 0.02f, eyeY - 0.02f, eyeZ);
+    glVertex3f(eyeSpacing - 0.02f, eyeY - 0.02f, eyeZ);
+    glEnd();
+    
+    // Dark brown irises
+    glColor3f(0.2f, 0.1f, 0.05f);
+    glBegin(GL_POLYGON);
+    for (float a = 0; a < 6.28f; a += 0.3f) {
+        glVertex3f(-eyeSpacing + 0.025f * cos(a), eyeY + 0.025f * sin(a), eyeZ + 0.001f);
+    }
+    glEnd();
+    
+    glBegin(GL_POLYGON);
+    for (float a = 0; a < 6.28f; a += 0.3f) {
+        glVertex3f(eyeSpacing + 0.025f * cos(a), eyeY + 0.025f * sin(a), eyeZ + 0.001f);
+    }
+    glEnd();
+    
+    // Black pupils
+    glColor3f(0.0f, 0.0f, 0.0f);
+    glBegin(GL_POLYGON);
+    for (float a = 0; a < 6.28f; a += 0.5f) {
+        glVertex3f(-eyeSpacing + 0.012f * cos(a), eyeY + 0.012f * sin(a), eyeZ + 0.002f);
+    }
+    glEnd();
+    
+    glBegin(GL_POLYGON);
+    for (float a = 0; a < 6.28f; a += 0.5f) {
+        glVertex3f(eyeSpacing + 0.012f * cos(a), eyeY + 0.012f * sin(a), eyeZ + 0.002f);
+    }
+    glEnd();
+    
+    // Eye highlights
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_POLYGON);
+    for (float a = 0; a < 6.28f; a += 1.0f) {
+        glVertex3f(-eyeSpacing - 0.008f + 0.004f * cos(a), eyeY + 0.008f + 0.004f * sin(a), eyeZ + 0.003f);
+    }
+    glEnd();
+    
+    glBegin(GL_POLYGON);
+    for (float a = 0; a < 6.28f; a += 1.0f) {
+        glVertex3f(eyeSpacing - 0.008f + 0.004f * cos(a), eyeY + 0.008f + 0.004f * sin(a), eyeZ + 0.003f);
+    }
+    glEnd();
 }
-void drawHeadSphere() {
-    if (!g_headQuadric)return; glPushMatrix(); glColor3f(0.9f, 0.7f, 0.6f);
-    GLdouble eq[4] = { 0,1,0,-Y18 }; glClipPlane(GL_CLIP_PLANE0, eq); glEnable(GL_CLIP_PLANE0);
-    glTranslatef(0, HEAD_CENTER_Y, 0); gluSphere(g_headQuadric, HEAD_RADIUS, 32, 24);
-    glDisable(GL_CLIP_PLANE0); glPopMatrix();
+
+void drawMulanEyebrows() {
+    const float headR = HEAD_RADIUS;
+    const float browY = headR * 0.32f; // Position relative to head center
+    const float browZ = headR * 0.92f; // Moved forward to face surface
+    const float eyeSpacing = 0.1f; // Match eye spacing
+    
+    // Dark brown eyebrows
+    glColor3f(0.15f, 0.1f, 0.05f);
+    glLineWidth(3.0f);
+    
+    // Left eyebrow
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(-eyeSpacing - 0.04f, browY, browZ);
+    glVertex3f(-eyeSpacing - 0.02f, browY + 0.015f, browZ);
+    glVertex3f(-eyeSpacing, browY + 0.018f, browZ);
+    glVertex3f(-eyeSpacing + 0.02f, browY + 0.012f, browZ);
+    glVertex3f(-eyeSpacing + 0.04f, browY + 0.005f, browZ);
+    glEnd();
+    
+    // Right eyebrow
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(eyeSpacing - 0.04f, browY + 0.005f, browZ);
+    glVertex3f(eyeSpacing - 0.02f, browY + 0.012f, browZ);
+    glVertex3f(eyeSpacing, browY + 0.018f, browZ);
+    glVertex3f(eyeSpacing + 0.02f, browY + 0.015f, browZ);
+    glVertex3f(eyeSpacing + 0.04f, browY, browZ);
+    glEnd();
+    
+    glLineWidth(1.0f);
+}
+
+void drawMulanNose() {
+    const float headR = HEAD_RADIUS;
+    const float noseY = -headR * 0.02f; // Position relative to head center
+    const float noseZ = headR * 0.98f; // Moved forward to face surface
+    
+    // Nose bridge (subtle for East Asian features)
+    glColor3f(0.85f, 0.65f, 0.55f); // Slightly darker than skin
+    glLineWidth(2.0f);
+    
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(0.0f, noseY + 0.03f, noseZ);
+    glVertex3f(0.0f, noseY, noseZ + 0.01f);
+    glVertex3f(0.0f, noseY - 0.01f, noseZ);
+    glEnd();
+    
+    // Nostrils
+    glColor3f(0.3f, 0.2f, 0.15f);
+    glBegin(GL_POINTS);
+    glVertex3f(-0.008f, noseY - 0.015f, noseZ);
+    glVertex3f(0.008f, noseY - 0.015f, noseZ);
+    glEnd();
+    
+    glLineWidth(1.0f);
+}
+
+void drawMulanMouth() {
+    const float headR = HEAD_RADIUS;
+    const float mouthY = -headR * 0.3f; // Position relative to head center
+    const float mouthZ = headR * 0.95f; // Moved forward to face surface
+    
+    // Natural lip color
+    glColor3f(0.8f, 0.4f, 0.4f);
+    glLineWidth(2.5f);
+    
+    // Upper lip curve
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(-0.025f, mouthY + 0.005f, mouthZ);
+    glVertex3f(-0.012f, mouthY + 0.012f, mouthZ);
+    glVertex3f(0.0f, mouthY + 0.008f, mouthZ);
+    glVertex3f(0.012f, mouthY + 0.012f, mouthZ);
+    glVertex3f(0.025f, mouthY + 0.005f, mouthZ);
+    glEnd();
+    
+    // Lower lip
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(-0.025f, mouthY + 0.005f, mouthZ);
+    glVertex3f(-0.012f, mouthY - 0.005f, mouthZ);
+    glVertex3f(0.0f, mouthY - 0.008f, mouthZ);
+    glVertex3f(0.012f, mouthY - 0.005f, mouthZ);
+    glVertex3f(0.025f, mouthY + 0.005f, mouthZ);
+    glEnd();
+    
+    glLineWidth(1.0f);
+}
+
+void drawMulanHair() {
+    const float headR = HEAD_RADIUS;
+    const int segments = 32;
+    
+    glColor3f(0.05f, 0.05f, 0.1f); // Dark black hair
+    
+    // --- Part 1: Voluminous Hair Cap ---
+    // A slightly larger cap to give the hair body.
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = (float)i / segments * 2.0f * PI;
+        float angle2 = (float)(i + 1) / segments * 2.0f * PI;
+        
+        float capRadius = headR * 1.15f; // Increased to avoid clipping
+        float x1 = capRadius * cos(angle1);
+        float z1 = capRadius * sin(angle1);
+        float x2 = capRadius * cos(angle2);
+        float z2 = capRadius * sin(angle2);
+        
+        // A high center point for volume
+        Vec3f top_center = {0.0f, headR * 1.25f, 0.0f}; // Slightly higher
+        // The edge of the cap - positioned outward from head surface
+        Vec3f edge_v1 = {x1, headR * 0.75f, z1};
+        Vec3f edge_v2 = {x2, headR * 0.75f, z2};
+
+        // Normal for the triangle
+        Vec3f n = normalize(cross(sub(edge_v1, top_center), sub(edge_v2, top_center)));
+        glNormal3f(n.x, n.y, n.z);
+
+        glVertex3f(top_center.x, top_center.y, top_center.z);
+        glVertex3f(edge_v1.x, edge_v1.y, edge_v1.z);
+        glVertex3f(edge_v2.x, edge_v2.y, edge_v2.z);
+    }
+    glEnd();
+    
+    // --- Part 2: Main Bob Shape (Sides & Back) ---
+    // Chin-length hair with an inward curve.
+    glBegin(GL_QUADS);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = (float)i / segments * 2.0f * PI;
+        float angle2 = (float)(i + 1) / segments * 2.0f * PI;
+
+        // Skip the very front to leave space for bangs
+        if (sin(angle1) > 0.3f && fabsf(cos(angle1)) < 0.8f) {
+            continue;
+        }
+
+        // Top of the strand - positioned outward from head
+        float topRadius = headR * 1.15f; // Increased to clear head surface
+        float topY = headR * 0.75f;
+        float x1_top = topRadius * cos(angle1);
+        float z1_top = topRadius * sin(angle1);
+        float x2_top = topRadius * cos(angle2);
+        float z2_top = topRadius * sin(angle2);
+
+        // Bottom of the strand with different lengths
+        float bottomRadius = headR * 0.95f; // Less inward curve to avoid clipping
+        float bottomY = -headR * 0.5f; // Default chin-length
+        
+        // Make sides very short (undercut style)
+        if (fabsf(cos(angle1)) > 0.5f) { // Left and right sides
+            bottomY = headR * 0.1f; // Very short - just below ear level
+            bottomRadius = headR * 1.25f; // Keep close to head
+        }
+        // Make back much longer (shoulder-length)
+        else if (sin(angle1) < -0.3) { // Back of the head
+            bottomY = -headR * 1.0f; // Much longer back - shoulder length
+            bottomRadius = headR * 1.25f; // Less aggressive inward curve for longer hair
+        }
+
+        float x1_bot = bottomRadius * cos(angle1);
+        float z1_bot = bottomRadius * sin(angle1);
+        float x2_bot = bottomRadius * cos(angle2);
+        float z2_bot = bottomRadius * sin(angle2);
+
+        Vec3f v_top1 = {x1_top, topY, z1_top};
+        Vec3f v_top2 = {x2_top, topY, z2_top};
+        Vec3f v_bot1 = {x1_bot, bottomY, z1_bot};
+        Vec3f v_bot2 = {x2_bot, bottomY, z2_bot};
+
+        Vec3f n = normalize(cross(sub(v_top2, v_top1), sub(v_bot1, v_top1)));
+        glNormal3f(n.x, n.y, n.z);
+
+        glVertex3f(v_top1.x, v_top1.y, v_top1.z);
+        glVertex3f(v_top2.x, v_top2.y, v_top2.z);
+        glVertex3f(v_bot2.x, v_bot2.y, v_bot2.z);
+        glVertex3f(v_bot1.x, v_bot1.y, v_bot1.z);
+    }
+    glEnd();
+
+    // --- Part 3: French Fringe (Bangs) ---
+    // Straight-cut bangs across the forehead.
+    glBegin(GL_QUADS);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = (float)i / segments * 2.0f * PI;
+        float angle2 = (float)(i + 1) / segments * 2.0f * PI;
+
+        // Only draw bangs in the front center section - no side bangs
+        if (sin(angle1) < 0.4f || fabsf(cos(angle1)) > 0.6f) {
+             continue;
+        }
+
+        // Top of bangs - positioned outward from head
+        float topRadius = headR * 1.15f; // Increased to clear head surface
+        float topY = headR * 0.8f;
+        float x1_top = topRadius * cos(angle1);
+        float z1_top = topRadius * sin(angle1);
+        float x2_top = topRadius * cos(angle2);
+        float z2_top = topRadius * sin(angle2);
+
+        // Bottom of bangs (just above eyebrows)
+        float bottomRadius = headR * 1.08f; // Slightly outward to avoid clipping
+        float bottomY = headR * 0.3f; // Eyebrow level is browY = headR * 0.32f
+        float x1_bot = bottomRadius * cos(angle1);
+        float z1_bot = bottomRadius * sin(angle1);
+        float x2_bot = bottomRadius * cos(angle2);
+        float z2_bot = bottomRadius * sin(angle2);
+
+        Vec3f v_top1 = {x1_top, topY, z1_top};
+        Vec3f v_top2 = {x2_top, topY, z2_top};
+        Vec3f v_bot1 = {x1_bot, bottomY, z1_bot};
+        Vec3f v_bot2 = {x2_bot, bottomY, z2_bot};
+        
+        Vec3f n = normalize(cross(sub(v_top2, v_top1), sub(v_bot1, v_top1)));
+        glNormal3f(n.x, n.y, n.z);
+
+        glVertex3f(v_top1.x, v_top1.y, v_top1.z);
+        glVertex3f(v_top2.x, v_top2.y, v_top2.z);
+        glVertex3f(v_bot2.x, v_bot2.y, v_bot2.z);
+        glVertex3f(v_bot1.x, v_bot1.y, v_bot1.z);
+    }
+    glEnd();
+}
+
+void drawMulanFace() {
+    drawMulanHair();
+    drawMulanEyebrows();
+    drawMulanEyes();
+    drawMulanNose();
+    drawMulanMouth();
+}
+
+// Draw custom U-shaped face geometry
+void drawCustomFaceShape() {
+    // Define face parameters - much larger to match original sphere size
+    const float faceWidth = HEAD_RADIUS * 1.1f;
+    const float faceHeight = HEAD_RADIUS * 1.4f;
+    const float faceDepth = HEAD_RADIUS * 0.9f;
+    const int segments = 20; // Horizontal segments
+    const int layers = 16;   // Vertical layers
+    
+    glBegin(GL_TRIANGLES);
+    
+    for (int layer = 0; layer < layers - 1; layer++) {
+        float y1 = ((float)layer / (layers - 1)) * 2.0f - 1.0f; // -1 to 1
+        float y2 = ((float)(layer + 1) / (layers - 1)) * 2.0f - 1.0f;
+        
+        // Convert to actual Y coordinates
+        float actualY1 = y1 * faceHeight * 0.5f;
+        float actualY2 = y2 * faceHeight * 0.5f;
+        
+        // Calculate face width scaling based on height for U-shaped jaw
+        float widthScale1, widthScale2;
+        
+        if (y1 < -0.2f) { // Lower jaw area - create U-shape
+            float jawFactor = (y1 + 1.0f) / 0.8f; // 0 at bottom, 1 at jaw line
+            widthScale1 = 0.5f + 0.5f * jawFactor * jawFactor; // Curved U-shape, less extreme
+        } else if (y1 < 0.4f) { // Mid face - full width
+            widthScale1 = 1.0f;
+        } else { // Upper face/forehead
+            float foreheadFactor = (y1 - 0.4f) / 0.6f;
+            widthScale1 = 1.0f - 0.1f * foreheadFactor; // Slightly narrower forehead
+        }
+        
+        if (y2 < -0.2f) { // Lower jaw area - create U-shape
+            float jawFactor = (y2 + 1.0f) / 0.8f;
+            widthScale2 = 0.5f + 0.5f * jawFactor * jawFactor; // Curved U-shape, less extreme
+        } else if (y2 < 0.4f) { // Mid face - full width
+            widthScale2 = 1.0f;
+        } else { // Upper face/forehead
+            float foreheadFactor = (y2 - 0.4f) / 0.6f;
+            widthScale2 = 1.0f - 0.1f * foreheadFactor; // Slightly narrower forehead
+        }
+        
+        // Calculate depth scaling for more natural face shape
+        float depthScale1 = 1.0f - 0.1f * fabsf(y1); // Less flattening for better proportions
+        float depthScale2 = 1.0f - 0.1f * fabsf(y2);
+        
+        for (int seg = 0; seg < segments; seg++) {
+            float angle1 = (float)seg / segments * 2.0f * PI;
+            float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
+            
+            // Calculate vertex positions for current layer
+            float x1_1 = cos(angle1) * faceWidth * widthScale1;
+            float z1_1 = sin(angle1) * faceDepth * depthScale1;
+            float x1_2 = cos(angle2) * faceWidth * widthScale1;
+            float z1_2 = sin(angle2) * faceDepth * depthScale1;
+            
+            // Calculate vertex positions for next layer
+            float x2_1 = cos(angle1) * faceWidth * widthScale2;
+            float z2_1 = sin(angle1) * faceDepth * depthScale2;
+            float x2_2 = cos(angle2) * faceWidth * widthScale2;
+            float z2_2 = sin(angle2) * faceDepth * depthScale2;
+            
+            // Calculate normals for smooth shading
+            Vec3f normal1 = normalize({x1_1, actualY1 * 0.3f, z1_1});
+            Vec3f normal2 = normalize({x1_2, actualY1 * 0.3f, z1_2});
+            Vec3f normal3 = normalize({x2_1, actualY2 * 0.3f, z2_1});
+            Vec3f normal4 = normalize({x2_2, actualY2 * 0.3f, z2_2});
+            
+            // First triangle
+            glNormal3f(normal1.x, normal1.y, normal1.z);
+            glVertex3f(x1_1, actualY1, z1_1);
+            glNormal3f(normal3.x, normal3.y, normal3.z);
+            glVertex3f(x2_1, actualY2, z2_1);
+            glNormal3f(normal2.x, normal2.y, normal2.z);
+            glVertex3f(x1_2, actualY1, z1_2);
+            
+            // Second triangle
+            glNormal3f(normal2.x, normal2.y, normal2.z);
+            glVertex3f(x1_2, actualY1, z1_2);
+            glNormal3f(normal3.x, normal3.y, normal3.z);
+            glVertex3f(x2_1, actualY2, z2_1);
+            glNormal3f(normal4.x, normal4.y, normal4.z);
+            glVertex3f(x2_2, actualY2, z2_2);
+        }
+    }
+    
+    // Cap the top and bottom
+    // Top cap
+    for (int seg = 0; seg < segments; seg++) {
+        float angle1 = (float)seg / segments * 2.0f * PI;
+        float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
+        
+        float topWidthScale = 0.9f; // Slightly narrower at top
+        float x1 = cos(angle1) * faceWidth * topWidthScale;
+        float z1 = sin(angle1) * faceDepth * 0.8f;
+        float x2 = cos(angle2) * faceWidth * topWidthScale;
+        float z2 = sin(angle2) * faceDepth * 0.8f;
+        
+        glNormal3f(0, 1, 0);
+        glVertex3f(0, faceHeight * 0.5f, 0);
+        glVertex3f(x1, faceHeight * 0.5f, z1);
+        glVertex3f(x2, faceHeight * 0.5f, z2);
+    }
+    
+    // Bottom cap (chin area)
+    for (int seg = 0; seg < segments; seg++) {
+        float angle1 = (float)seg / segments * 2.0f * PI;
+        float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
+        
+        float bottomWidthScale = 0.5f; // Less narrow at chin for better proportions
+        float x1 = cos(angle1) * faceWidth * bottomWidthScale;
+        float z1 = sin(angle1) * faceDepth * 0.6f;
+        float x2 = cos(angle2) * faceWidth * bottomWidthScale;
+        float z2 = sin(angle2) * faceDepth * 0.6f;
+        
+        glNormal3f(0, -1, 0);
+        glVertex3f(0, -faceHeight * 0.5f, 0);
+        glVertex3f(x2, -faceHeight * 0.5f, z2);
+        glVertex3f(x1, -faceHeight * 0.5f, z1);
+    }
+    
+    glEnd();
+}
+
+void drawMulanHead() {
+    glPushMatrix();
+    
+    // Position head to sit directly on top of neck sphere at Y19 level
+    // Head bottom should touch neck top, overlapping slightly for seamless connection
+    glTranslatef(0.0f, Y19 + HEAD_RADIUS * 0.7f, 0.0f);
+    
+    // Mulan's skin tone (East Asian complexion)
+    glColor3f(0.92f, 0.76f, 0.65f);
+    
+    // Draw custom U-shaped face instead of sphere
+    drawCustomFaceShape();
+    
+    // Add head bottom cap to seal connection with neck
+    const float headBottomRadius = HEAD_RADIUS * 0.3f; // Smaller radius for neck connection
+    const float headBottomY = -HEAD_RADIUS * 0.7f; // Bottom of head
+    
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < 16; i++) {
+        float angle1 = (float)i / 16.0f * 2.0f * PI;
+        float angle2 = (float)(i + 1) / 16.0f * 2.0f * PI;
+        
+        // Create smooth bottom surface
+        Vec3f center = {0.0f, headBottomY, 0.0f};
+        Vec3f v1 = {headBottomRadius * cos(angle1), headBottomY, headBottomRadius * sin(angle1)};
+        Vec3f v2 = {headBottomRadius * cos(angle2), headBottomY, headBottomRadius * sin(angle2)};
+        
+        // Normal pointing downward (since this is the bottom of head)
+        glNormal3f(0, -1, 0);
+        
+        // Triangle: center -> v2 -> v1 (clockwise from below for correct winding)
+        glVertex3f(center.x, center.y, center.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+    }
+    glEnd();
+    
+    // Draw detailed facial features
+    drawMulanFace();
+    
+    glPopMatrix();
 }
 void drawTorso() {
-    // Draw main torso body (clothing)
-    glColor3f(0.2f, 0.4f, 0.8f); glBegin(GL_TRIANGLES);
-    BAND(R0, Y0, R1, Y1); BAND(R1, Y1, R2, Y2); BAND(R2, Y2, R3, Y3); BAND(R3, Y3, R4, Y4); BAND(R4, Y4, R5, Y5); BAND(R5, Y5, R6, Y6); BAND(R6, Y6, R7, Y7); BAND(R7, Y7, R8, Y8);
-    BAND(R8, Y8, R9, Y9); BAND(R9, Y9, R10, Y10); BAND(R10, Y10, R11, Y11); BAND(R11, Y11, R12, Y12); BAND(R12, Y12, R13, Y13); BAND(R13, Y13, R14, Y14); BAND(R14, Y14, R15, Y15);
+    // Draw main torso body (clothing) with smooth shading
+    glColor3f(0.2f, 0.4f, 0.8f);
+    glShadeModel(GL_SMOOTH); // Enable smooth shading for seamless appearance
+    glBegin(GL_TRIANGLES);
+    drawCurvedBand(R0, Y0, R1, Y1);
+    drawCurvedBand(R1, Y1, R2, Y2);
+    drawCurvedBand(R2, Y2, R3, Y3);
+    drawCurvedBand(R3, Y3, R4, Y4);
+    drawCurvedBand(R4, Y4, R5, Y5);
+    drawCurvedBand(R5, Y5, R6, Y6);
+    drawCurvedBand(R6, Y6, R7, Y7);
+    drawCurvedBand(R7, Y7, R8, Y8);
+    drawCurvedBand(R8, Y8, R9, Y9);
+    drawCurvedBand(R9, Y9, R10, Y10);
+    drawCurvedBand(R10, Y10, R11, Y11);
+    drawCurvedBand(R11, Y11, R12, Y12);
+    drawCurvedBand(R12, Y12, R13, Y13);
+    drawCurvedBand(R13, Y13, R14, Y14);
+    drawCurvedBand(R14, Y14, R15, Y15);
+    drawCurvedBand(R15, Y15, R16, Y16); // Extended torso to include shoulder transition
     glEnd();
-
-    // Draw skin areas (neck) and enhanced shoulders
-    glColor3f(0.9f, 0.7f, 0.6f); glBegin(GL_TRIANGLES);
-    BAND(R15, Y15, R16, Y16); BAND(R16, Y16, R17, Y17); BAND(R17, Y17, R18, Y18);
+    
+    // Add bottom cap to close the torso (prevent seeing through from below)
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < 16; ++i) {
+        float cA = segCos[i];
+        float sA = segSin[i];
+        float cB = segCos[(i + 1) % 16];
+        float sB = segSin[(i + 1) % 16];
+        
+        // Create bottom surface at Y0 level with R0 radius
+        Vec3f center = {0.0f, Y0, 0.0f};
+        Vec3f v1 = {R0 * cA, Y0, R0 * sA};
+        Vec3f v2 = {R0 * cB, Y0, R0 * sB};
+        
+        // Apply same curvature as torso
+        if (sA < 0) v1.z *= 0.5f; // Back curvature
+        if (sB < 0) v2.z *= 0.5f; // Back curvature
+        
+        // Normal pointing downward (since this is the bottom)
+        glNormal3f(0, -1, 0);
+        
+        // Triangle: center -> v1 -> v2 (clockwise from below)
+        glVertex3f(center.x, center.y, center.z);
+        glVertex3f(v2.x, v2.y, v2.z); // Reversed order for correct winding
+        glVertex3f(v1.x, v1.y, v1.z);
+    }
     glEnd();
+    
+    glShadeModel(GL_FLAT); // Reset to default shading
 
-    // Add shoulder socket geometry for better arm attachment
-    drawShoulderSockets();
+    // Draw skin areas (shoulder slope and neck) with smooth shading - feminine curves
+    // All bands are automatically centered on torso middle (X=0, Z=0)
+    glColor3f(0.9f, 0.7f, 0.6f);
+    glShadeModel(GL_SMOOTH); // Smooth shading for seamless shoulder-neck transition
+    glBegin(GL_TRIANGLES);
+    drawCurvedBand(R16, Y16, R17, Y17); // Upper shoulder slope - elegant feminine curve
+    drawCurvedBand(R17, Y17, R18, Y18); // Lower shoulder slope to neck base
+    drawCurvedBand(R18, Y18, R19, Y19); // Neck - slim and graceful, centered on torso
+    glEnd();
+    
+    // Add neck top cap to close the neck (smooth transition to head)
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < 16; ++i) {
+        float cA = segCos[i];
+        float sA = segSin[i];
+        float cB = segCos[(i + 1) % 16];
+        float sB = segSin[(i + 1) % 16];
+        
+        // Create top surface at Y19 level with R19 radius
+        Vec3f center = {0.0f, Y19, 0.0f};
+        Vec3f v1 = {R19 * cA, Y19, R19 * sA};
+        Vec3f v2 = {R19 * cB, Y19, R19 * sB};
+        
+        // Normal pointing upward (since this is the top of neck)
+        glNormal3f(0, 1, 0);
+        
+        // Triangle: center -> v1 -> v2 (counter-clockwise from above)
+        glVertex3f(center.x, center.y, center.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+    }
+    glEnd();
+    
+    glShadeModel(GL_FLAT); // Reset to default shading
 
-    drawHeadSphere();
+    // Draw internal ball-and-socket joints (hidden inside torso and arms)
+    drawInternalShoulderJoints();
+
+    drawMulanHead();
 }
 
-// Draw enhanced shoulder sockets for natural arm attachment
-void drawShoulderSockets() {
+// Draw internal ball-and-socket joints (hidden inside torso and arms)
+void drawInternalShoulderJoints() {
+    const float shoulderOffsetTorso = R14 * 0.90f;  // Ball position lowered to R14 level
+    const float shoulderOffsetArm = R14 * 0.85f; // Socket position at lower torso connection
+    const float jointHeight = Y14; // Position lowered to R14 level for better integration
+    const float ballRadius = 0.08f;
+    const float socketRadius = 0.10f;
+    
+    // --- Left Shoulder Ball (inside blue torso R14) ---
+    glPushMatrix();
+    glColor3f(0.2f, 0.4f, 0.8f); // Match blue torso color
+    glTranslatef(-shoulderOffsetTorso, jointHeight, 0.1f); // Positioned at blue torso boundary
+    
+    // Clip ball to only show inside torso (hide external part)
+    GLdouble clipPlaneLeft[] = { -1.0, 0.0, 0.0, -shoulderOffsetTorso + 0.1f };
+    glClipPlane(GL_CLIP_PLANE0, clipPlaneLeft);
+    glEnable(GL_CLIP_PLANE0);
+    
+    // Draw ball hemisphere (only internal part visible)
+    GLUquadric* ballQuadric = gluNewQuadric();
+    if (ballQuadric) {
+        gluSphere(ballQuadric, ballRadius, 16, 16);
+        gluDeleteQuadric(ballQuadric);
+    }
+    glDisable(GL_CLIP_PLANE0);
+    glPopMatrix();
+    
+    // --- Right Shoulder Ball (inside blue torso R14) ---
+    glPushMatrix();
+    glColor3f(0.2f, 0.4f, 0.8f); // Match blue torso color
+    glTranslatef(shoulderOffsetTorso, jointHeight, 0.1f); // Positioned at blue torso boundary
+    
+    // Clip ball to only show inside torso
+    GLdouble clipPlaneRight[] = { 1.0, 0.0, 0.0, -shoulderOffsetTorso + 0.1f };
+    glClipPlane(GL_CLIP_PLANE0, clipPlaneRight);
+    glEnable(GL_CLIP_PLANE0);
+    
+    if (ballQuadric) {
+        ballQuadric = gluNewQuadric();
+        gluSphere(ballQuadric, ballRadius, 16, 16);
+        gluDeleteQuadric(ballQuadric);
+    }
+    glDisable(GL_CLIP_PLANE0);
+    glPopMatrix();
+}
+
+// Original shoulder socket function (now unused)
+void drawShoulderSocketsOLD() {
     glColor3f(0.9f, 0.7f, 0.6f); // Skin color to match neck
 
-    // --- Shoulder parameters for a smoother, rounded shape ---
-    const float shoulderRadius = 0.12f;     // Slightly smaller radius for a more natural fit
-    const float shoulderHeight = Y16 - 0.03f; // LOWERED: Adjust to bring shoulders down
-    const float shoulderOffset = R16 + 0.02f; // Adjusted offset for a seamless blend
-    const int slices = 12;                  // More horizontal segments for a rounder look
-    const int stacks = 6;                   // More vertical segments for a smoother curve
+    // --- Shoulder parameters integrated with torso ---
+    const float shoulderRadius = 0.12f;     // Smaller radius to blend better
+    const float shoulderHeight = Y15;       // Position at torso shoulder level
+    const float shoulderOffset = R14 * 0.85f; // Slightly inward for better integration
+    const int slices = 12;                  
+    const int stacks = 4;                   // Fewer stacks for flatter integration
 
-    // --- Draw Left Shoulder Socket ---
+    // --- Draw Left Shoulder Socket (clipped to blend with torso) ---
     glPushMatrix();
     glTranslatef(-shoulderOffset, shoulderHeight, 0.0f);
+    
+    // Clip to blend seamlessly with torso
+    GLdouble clipPlane[] = { 1.0, 0.0, 0.0, shoulderOffset * 0.3f }; 
+    glClipPlane(GL_CLIP_PLANE0, clipPlane); 
+    glEnable(GL_CLIP_PLANE0);
 
     glBegin(GL_TRIANGLES);
     // Generate a hemisphere (top half of a sphere)
@@ -1523,12 +2170,17 @@ void drawShoulderSockets() {
         }
     }
     glEnd();
+    glDisable(GL_CLIP_PLANE0); // Disable clipping after left shoulder
     glPopMatrix();
 
-
-    // --- Draw Right Shoulder Socket (mirrored) ---
+    // --- Draw Right Shoulder Socket (mirrored and clipped) ---
     glPushMatrix();
     glTranslatef(shoulderOffset, shoulderHeight, 0.0f);
+    
+    // Clip to blend seamlessly with torso (mirrored)
+    GLdouble clipPlaneRight[] = { -1.0, 0.0, 0.0, shoulderOffset * 0.3f }; 
+    glClipPlane(GL_CLIP_PLANE0, clipPlaneRight); 
+    glEnable(GL_CLIP_PLANE0);
 
     glBegin(GL_TRIANGLES);
     // Generate a hemisphere, mirrored on the X-axis
@@ -1569,6 +2221,7 @@ void drawShoulderSockets() {
         }
     }
     glEnd();
+    glDisable(GL_CLIP_PLANE0); // Disable clipping after right shoulder
     glPopMatrix();
 }
 // --- Arm and Hand Drawing ---
@@ -1577,7 +2230,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     KungFuPoseData currentPose = getCurrentKungFuPose();
 
     // If character is moving, override the idle arm pose with the walking/running swing
-    if (abs(gMoveSpeed) > 0.1f) {
+    if (fabsf(gMoveSpeed) > 0.1f) {
         // Use the walking/running arm swing angles passed to this function
         currentPose.leftArm.shoulderPitch = 90.0f + leftArmAngle;
         currentPose.rightArm.shoulderPitch = 90.0f + rightArmAngle;
@@ -1602,17 +2255,37 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glColor3f(0.85f, 0.64f, 0.52f); // Skin color
     }
 
-    // --- Draw Left Arm ---
+    // --- Draw Left Arm (connected to shoulder peak R15) ---
     glPushMatrix();
     {
-        float shoulderOffset = R16 + 0.08f;
-        glTranslatef(-shoulderOffset, Y16, 0.0f);
+        float shoulderOffset = R14 * 1.05f; // Lowered to R14 level with clearance
+        glTranslatef(-shoulderOffset, Y14, 0.1f); // Position at lowered shoulder level
         glRotatef(currentPose.leftArm.shoulderPitch, 1.0f, 0.0f, 0.0f);
         glRotatef(currentPose.leftArm.shoulderYaw, 0.0f, 1.0f, 0.0f);
         glRotatef(currentPose.leftArm.shoulderRoll, 0.0f, 0.0f, 1.0f);
 
+        // Draw internal shoulder socket (connected to shoulder band R15)
         glPushMatrix();
-        glScalef(ARM_SCALE, ARM_SCALE, ARM_SCALE);
+        glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
+        glTranslatef(0.0f, 0.0f, -0.05f); // Socket position aligned with shoulder band connection
+        
+        // Clip socket to only show inside arm (hide external part)
+        GLdouble clipPlaneArmLeft[] = { 1.0, 0.0, 0.0, 0.1f };
+        glClipPlane(GL_CLIP_PLANE1, clipPlaneArmLeft);
+        glEnable(GL_CLIP_PLANE1);
+        
+        // Draw internal socket cavity
+        GLUquadric* socketQuadric = gluNewQuadric();
+        if (socketQuadric) {
+            gluQuadricOrientation(socketQuadric, GLU_INSIDE); // Inward-facing for socket
+            gluSphere(socketQuadric, 0.10f, 12, 12);
+            gluDeleteQuadric(socketQuadric);
+        }
+        glDisable(GL_CLIP_PLANE1);
+        glPopMatrix();
+
+        glPushMatrix();
+        glScalef(ARM_SCALE * 0.9f, ARM_SCALE * 0.9f, ARM_SCALE * 0.9f); // Slightly smaller to avoid clipping
         drawLowPolyArm(g_ArmJoints);
         glPopMatrix();
 
@@ -1628,7 +2301,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glRotatef(currentPose.leftArm.wristRoll, 0.0f, 0.0f, 1.0f);
 
         glPushMatrix();
-        glScalef(HAND_SCALE, HAND_SCALE, HAND_SCALE);
+        glScalef(HAND_SCALE * 0.95f, HAND_SCALE * 0.95f, HAND_SCALE * 0.95f); // Slightly smaller for better proportions
         if (g_TextureEnabled && g_HandTexture != 0) {
             glEnable(GL_TEXTURE_2D);
             glBindTexture(GL_TEXTURE_2D, g_HandTexture);
@@ -1645,17 +2318,37 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     }
     glPopMatrix();
 
-    // --- Draw Right Arm ---
+    // --- Draw Right Arm (connected to shoulder peak R15) ---
     glPushMatrix();
     {
-        float shoulderOffset = R16 + 0.08f;
-        glTranslatef(shoulderOffset, Y16, 0.0f);
+        float shoulderOffset = R14 * 1.05f; // Lowered to R14 level with clearance
+        glTranslatef(shoulderOffset, Y14, 0.1f); // Position at lowered shoulder level
         glRotatef(currentPose.rightArm.shoulderPitch, 1.0f, 0.0f, 0.0f);
         glRotatef(currentPose.rightArm.shoulderYaw, 0.0f, 1.0f, 0.0f);
         glRotatef(currentPose.rightArm.shoulderRoll, 0.0f, 0.0f, 1.0f);
 
+        // Draw internal shoulder socket (connected to shoulder band R15)
         glPushMatrix();
-        glScalef(ARM_SCALE, ARM_SCALE, ARM_SCALE);
+        glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
+        glTranslatef(0.0f, 0.0f, -0.05f); // Socket position aligned with shoulder band connection
+        
+        // Clip socket to only show inside arm (hide external part)  
+        GLdouble clipPlaneArmRight[] = { -1.0, 0.0, 0.0, 0.1f };
+        glClipPlane(GL_CLIP_PLANE1, clipPlaneArmRight);
+        glEnable(GL_CLIP_PLANE1);
+        
+        // Draw internal socket cavity
+        GLUquadric* socketQuadric = gluNewQuadric();
+        if (socketQuadric) {
+            gluQuadricOrientation(socketQuadric, GLU_INSIDE); // Inward-facing for socket
+            gluSphere(socketQuadric, 0.10f, 12, 12);
+            gluDeleteQuadric(socketQuadric);
+        }
+        glDisable(GL_CLIP_PLANE1);
+        glPopMatrix();
+
+        glPushMatrix();
+        glScalef(ARM_SCALE * 0.9f, ARM_SCALE * 0.9f, ARM_SCALE * 0.9f); // Slightly smaller to avoid clipping
         drawLowPolyArm(g_ArmJoints2);
         glPopMatrix();
 
@@ -1671,7 +2364,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glRotatef(currentPose.rightArm.wristRoll, 0.0f, 0.0f, 1.0f);
 
         glPushMatrix();
-        glScalef(HAND_SCALE, HAND_SCALE, HAND_SCALE);
+        glScalef(HAND_SCALE * 0.95f, HAND_SCALE * 0.95f, HAND_SCALE * 0.95f); // Slightly smaller for better proportions
         if (g_TextureEnabled && g_HandTexture != 0) {
             glEnable(GL_TEXTURE_2D);
             glBindTexture(GL_TEXTURE_2D, g_HandTexture);
@@ -1694,20 +2387,22 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 // --- Main Character Drawing ---
 void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle) {
     glPushMatrix();
-    glTranslatef(0.0f, 8.2f * LEG_SCALE, 0.0f);
+    // Position body to connect seamlessly with scaled leg tops
+    // Leg mesh max Y is 8.2f, scaled by LEG_SCALE gives the connection point
+    glTranslatef(0.0f, 8.2f * LEG_SCALE, 0.0f); // Connect at top of scaled legs
     glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
     glRotatef(g_pose.torsoYaw, 0, 1, 0); glRotatef(g_pose.torsoPitch, 1, 0, 0); glRotatef(g_pose.torsoRoll, 0, 0, 1);
 
     drawArmsAndHands(leftArmAngle, rightArmAngle); // Pass the arm angles down
     drawTorso();
-    drawSkirt(leftLegAngle, rightLegAngle);
+    // drawSkirt(leftLegAngle, rightLegAngle); // Skirt removed
 
     glDisable(GL_LIGHTING); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glPushMatrix();
     glTranslatef(0, HEAD_CENTER_Y, 0);
     glRotatef(g_pose.headYaw, 0, 1, 0); glRotatef(g_pose.headPitch, 1, 0, 0); glRotatef(g_pose.headRoll, 0, 0, 1);
     glTranslatef(0, -HEAD_CENTER_Y, 0);
-    drawFaceFeatures();
+    // Face features are now drawn as part of drawMulanHead()
     glPopMatrix();
     glEnable(GL_LIGHTING);
     glPopMatrix();
@@ -1738,7 +2433,7 @@ void display() {
     float leftKneeAngle = 0.0f, rightKneeAngle = 0.0f;
     float leftArmSwing = 0.0f, rightArmSwing = 0.0f;
 
-    if (abs(gMoveSpeed) > 0.1f) {
+    if (fabsf(gMoveSpeed) > 0.1f) {
         float animSpeed = keyShift ? 1.8f : 1.0f;
         float phase = gWalkPhase * animSpeed;
 
@@ -1763,20 +2458,20 @@ void display() {
 
         // Right Leg Knee: Its forward swing is when sinPhase is negative.
         if (rightThighAngle > 0) { // Leg is moving forward
-            float bendFactor = 1.0f - abs(sinPhase); // 1 at peak swing, 0 at center
+            float bendFactor = 1.0f - fabsf(sinPhase); // 1 at peak swing, 0 at center
             rightKneeAngle = -(1.0f - bendFactor * bendFactor) * SWINGING_LEG_KNEE_BEND;
         }
         else { // Leg is moving backward
-            rightKneeAngle = -(abs(sinPhase)) * PLANTED_LEG_FLEX_AMOUNT;
+            rightKneeAngle = -(fabsf(sinPhase)) * PLANTED_LEG_FLEX_AMOUNT;
         }
 
         // Left Leg Knee: Its forward swing is when sinPhase is positive.
         if (leftThighAngle > 0) { // Leg is moving forward
-            float bendFactor = 1.0f - abs(sinPhase);
+            float bendFactor = 1.0f - fabsf(sinPhase);
             leftKneeAngle = -(1.0f - bendFactor * bendFactor) * SWINGING_LEG_KNEE_BEND;
         }
         else { // Leg is moving backward
-            leftKneeAngle = -(abs(sinPhase)) * PLANTED_LEG_FLEX_AMOUNT;
+            leftKneeAngle = -(fabsf(sinPhase)) * PLANTED_LEG_FLEX_AMOUNT;
         }
     }
 
@@ -1784,9 +2479,20 @@ void display() {
     glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob, gCharacterPos.z); // Apply body bob
     glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
-    // Draw legs with new detailed angles
-    glPushMatrix(); glTranslatef(-0.2f, 0, 0); drawLeg(false, leftThighAngle, leftKneeAngle); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.2f, 0, 0); drawLeg(true, rightThighAngle, rightKneeAngle); glPopMatrix();
+    // Draw legs with better proportions
+    // Hip width should match the body radius at hip level (R8 * BODY_SCALE)
+    // Position legs at natural hip socket locations for proper human proportions
+    float hipWidth = R8 * BODY_SCALE * 0.8f; // Slightly wider hip positioning for shorter legs
+    
+    glPushMatrix(); 
+    glTranslatef(-hipWidth, 0.3f, 0.5f); // Translated up to stick to torso bottom
+    drawLeg(false, leftThighAngle, leftKneeAngle); 
+    glPopMatrix();
+    
+    glPushMatrix(); 
+    glTranslatef(hipWidth, 0.3f, 0.5f); // Translated up to stick to torso bottom
+    drawLeg(true, rightThighAngle, rightKneeAngle); 
+    glPopMatrix();
 
     // Pass thigh angles for skirt and arm angles for arms
     drawBodyAndHead(leftThighAngle, rightThighAngle, leftArmSwing, rightArmSwing);
@@ -1800,9 +2506,9 @@ void display() {
 // ===================================================================
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
-    WNDCLASSEX wc{}; wc.cbSize = sizeof(WNDCLASSEX); wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC; wc.lpfnWndProc = WindowProcedure; wc.hInstance = GetModuleHandle(NULL); wc.lpszClassName = WINDOW_TITLE;
-    if (!RegisterClassEx(&wc))return 0;
-    HWND hWnd = CreateWindow(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight, NULL, NULL, wc.hInstance, NULL);
+    WNDCLASSEXA wc{}; wc.cbSize = sizeof(WNDCLASSEXA); wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC; wc.lpfnWndProc = WindowProcedure; wc.hInstance = GetModuleHandle(NULL); wc.lpszClassName = WINDOW_TITLE;
+    if (!RegisterClassExA(&wc))return 0;
+    HWND hWnd = CreateWindowA(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight, NULL, NULL, wc.hInstance, NULL);
     if (!hWnd)return 0;
     HDC hdc = GetDC(hWnd);
     { PIXELFORMATDESCRIPTOR pfd{}; pfd.nSize = sizeof(pfd); pfd.nVersion = 1; pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER; pfd.iPixelType = PFD_TYPE_RGBA; pfd.cColorBits = 32; pfd.cDepthBits = 24; pfd.iLayerType = PFD_MAIN_PLANE; int pf = ChoosePixelFormat(hdc, &pfd); SetPixelFormat(hdc, pf, &pfd); }
@@ -1811,7 +2517,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
 
     glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
     initializeCharacterParts();
-    g_headQuadric = gluNewQuadric(); if (g_headQuadric)gluQuadricNormals(g_headQuadric, GLU_SMOOTH); if (g_headQuadric)gluQuadricDrawStyle(g_headQuadric, gShowWireframe ? GLU_LINE : GLU_FILL);
     QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
 
     MSG msg{};
@@ -1827,7 +2532,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
         display(); SwapBuffers(hdc);
     }
 
-    if (g_headQuadric) { gluDeleteQuadric(g_headQuadric); g_headQuadric = nullptr; } wglMakeCurrent(NULL, NULL); wglDeleteContext(rc); ReleaseDC(hWnd, hdc); UnregisterClass(WINDOW_TITLE, wc.hInstance);
+    wglMakeCurrent(NULL, NULL); wglDeleteContext(rc); ReleaseDC(hWnd, hdc); UnregisterClassA(WINDOW_TITLE, wc.hInstance);
     return 0;
 }
 
@@ -1838,7 +2543,7 @@ void updateCharacter(float dt) {
     gMoveSpeed = targetSpeed;
     if (keyLeft) { gCharacterYaw += TURN_SPEED * dt; }
     if (keyRight) { gCharacterYaw -= TURN_SPEED * dt; }
-    if (abs(gMoveSpeed) > 0.01f) {
+    if (fabsf(gMoveSpeed) > 0.01f) {
         float angleRad = gCharacterYaw * PI / 180.0f;
         gCharacterPos.x -= sin(angleRad) * gMoveSpeed * dt;
         gCharacterPos.z -= cos(angleRad) * gMoveSpeed * dt;
@@ -1858,7 +2563,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)PostQuitMessage(0);
         else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; gTarget = { 0.0f,3.5f,0.0f }; gCharacterPos = { 0,0,0 }; gCharacterYaw = 0; }
-        else if (wParam == '1') { gShowWireframe = !gShowWireframe; if (g_headQuadric)gluQuadricDrawStyle(g_headQuadric, gShowWireframe ? GLU_LINE : GLU_FILL); }
+        else if (wParam == '1') { gShowWireframe = !gShowWireframe; }
         else if (wParam == '2') { g_TextureEnabled = !g_TextureEnabled; } // Toggle hand texture
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
@@ -1895,4 +2600,42 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         return 0;
     default: return DefWindowProc(hWnd, msg, wParam, lParam);
     }
+}
+
+void drawCurvedBand(float rA, float yA, float rB, float yB) {
+	for (int i = 0; i < 16; ++i) {
+		float cA = segCos[i];
+		float sA = segSin[i];
+		float cB = segCos[(i + 1) % 16];
+		float sB = segSin[(i + 1) % 16];
+
+		// Base vertices
+		Vec3f v1A = { rA * cA, yA, rA * sA };
+		Vec3f v2A = { rB * cA, yB, rB * sA };
+		Vec3f v1B = { rA * cB, yA, rA * sB };
+		Vec3f v2B = { rB * cB, yB, rB * sB };
+
+		// Apply curvature
+		if (sA < 0) { // Back
+			v1A.z *= 0.5f;
+			v2A.z *= 0.5f;
+		}
+		if (sB < 0) { // Back
+			v1B.z *= 0.5f;
+			v2B.z *= 0.5f;
+		}
+
+		Vec3f nA = normalize(cross(sub(v2A, v1A), sub(v1B, v1A)));
+		Vec3f nB = normalize(cross(sub(v2B, v1B), sub(v1A, v1B)));
+
+		glNormal3f(nA.x, nA.y, nA.z);
+		glVertex3f(v1A.x, v1A.y, v1A.z);
+		glVertex3f(v2A.x, v2A.y, v2A.z);
+		glVertex3f(v2B.x, v2B.y, v2B.z);
+
+		glNormal3f(nB.x, nB.y, nB.z);
+		glVertex3f(v1A.x, v1A.y, v1A.z);
+		glVertex3f(v2B.x, v2B.y, v2B.z);
+		glVertex3f(v1B.x, v1B.y, v1B.z);
+	}
 }

@@ -10,7 +10,7 @@
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
 
-#define WINDOW_TITLE "Rounded Connected Leg Model (with Your Foot)"
+#define WINDOW_TITLE "Rounded Connected Leg Model (Thinner with Foot)"
 
 // --------------------- Global State ---------------------
 int   gWidth = 800;
@@ -42,52 +42,29 @@ std::vector<Tri>   gTris;
 std::vector<Vec3f> gVertexNormals;
 Vec3f gModelCenter{ 0,0,0 };
 
-// --------------------- YOUR FOOT (vertices + faces) ---------------------
-// (Exactly the foot you supplied; unchanged)
+// --------------------- FOOT GEOMETRY (inline) ---------------------
 const Vec3f gFootVertices[] = {
-    // Toes (5 distinct toes)
-    {0.25f, 0.0f, 1.4f}, {0.1f, 0.0f, 1.45f}, {0.1f, 0.25f, 1.45f}, {0.25f, 0.25f, 1.4f}, // 0-3 Big Toe Tip
-    {0.25f, 0.0f, 1.2f}, {0.1f, 0.0f, 1.2f}, {0.1f, 0.3f, 1.2f}, {0.25f, 0.3f, 1.2f}, // 4-7 Big Toe Knuckle
-    {0.05f, 0.0f, 1.4f}, {-0.1f, 0.0f, 1.35f}, {-0.1f, 0.2f, 1.35f}, {0.05f, 0.2f, 1.4f}, // 8-11 2nd Toe Tip
-    {0.05f, 0.0f, 1.15f}, {-0.1f, 0.0f, 1.15f}, {-0.1f, 0.25f, 1.15f}, {0.05f, 0.25f, 1.15f}, // 12-15 2nd Toe Knuckle
-    {-0.15f, 0.0f, 1.3f}, {-0.28f, 0.0f, 1.25f}, {-0.28f, 0.18f, 1.25f}, {-0.15f, 0.18f, 1.3f}, // 16-19 3rd Toe Tip
-    {-0.15f, 0.0f, 1.1f}, {-0.28f, 0.0f, 1.1f}, {-0.28f, 0.22f, 1.1f}, {-0.15f, 0.22f, 1.1f}, // 20-23 3rd Toe Knuckle
-    {-0.32f, 0.0f, 1.2f}, {-0.42f, 0.0f, 1.1f}, {-0.42f, 0.16f, 1.1f}, {-0.32f, 0.16f, 1.2f}, // 24-27 4th Toe Tip
-    {-0.32f, 0.0f, 1.0f}, {-0.42f, 0.0f, 1.0f}, {-0.42f, 0.2f, 1.0f}, {-0.32f, 0.2f, 1.0f}, // 28-31 4th Toe Knuckle
-    {-0.46f, 0.0f, 1.0f}, {-0.55f, 0.0f, 0.9f}, {-0.55f, 0.14f, 0.9f}, {-0.46f, 0.14f, 1.0f}, // 32-35 5th Toe Tip
-    {-0.46f, 0.0f, 0.8f}, {-0.55f, 0.0f, 0.8f}, {-0.55f, 0.18f, 0.8f}, {-0.46f, 0.18f, 0.8f}, // 36-39 5th Toe Knuckle
+    // Toes
+    {0.25f, 0.0f, 1.4f}, {0.1f, 0.0f, 1.45f}, {0.1f, 0.25f, 1.45f}, {0.25f, 0.25f, 1.4f}, // 0-3
+    {0.25f, 0.0f, 1.2f}, {0.1f, 0.0f, 1.2f}, {0.1f, 0.3f, 1.2f}, {0.25f, 0.3f, 1.2f},     // 4-7
+    {0.05f, 0.0f, 1.4f}, {-0.1f, 0.0f, 1.35f}, {-0.1f, 0.2f, 1.35f}, {0.05f, 0.2f, 1.4f}, // 8-11
+    {0.05f, 0.0f, 1.15f}, {-0.1f, 0.0f, 1.15f}, {-0.1f, 0.25f, 1.15f}, {0.05f, 0.25f, 1.15f}, // 12-15
+    {-0.15f, 0.0f, 1.3f}, {-0.28f, 0.0f, 1.25f}, {-0.28f, 0.18f, 1.25f}, {-0.15f, 0.18f, 1.3f}, // 16-19
+    {-0.15f, 0.0f, 1.1f}, {-0.28f, 0.0f, 1.1f}, {-0.28f, 0.22f, 1.1f}, {-0.15f, 0.22f, 1.1f}, // 20-23
+    {-0.32f, 0.0f, 1.2f}, {-0.42f, 0.0f, 1.1f}, {-0.42f, 0.16f, 1.1f}, {-0.32f, 0.16f, 1.2f}, // 24-27
+    {-0.32f, 0.0f, 1.0f}, {-0.42f, 0.0f, 1.0f}, {-0.42f, 0.2f, 1.0f}, {-0.32f, 0.2f, 1.0f}, // 28-31
+    {-0.46f, 0.0f, 1.0f}, {-0.55f, 0.0f, 0.9f}, {-0.55f, 0.14f, 0.9f}, {-0.46f, 0.14f, 1.0f}, // 32-35
+    {-0.46f, 0.0f, 0.8f}, {-0.55f, 0.0f, 0.8f}, {-0.55f, 0.18f, 0.8f}, {-0.46f, 0.18f, 0.8f}, // 36-39
 
-    // Foot Body Sides
-    {0.3f, 0.0f, 0.8f}, {0.3f, 0.4f, 0.8f}, // 40-41 (Side of Big Toe)
-    {-0.6f, 0.0f, 0.6f}, {-0.6f, 0.3f, 0.6f}, // 42-43 (Side of Pinky)
-
-    // Lower Ankle Ring / Heel connection points
-    {0.0f, 0.9f, 0.2f}, {0.5f, 0.8f, 0.1f}, {0.55f, 0.9f, -0.5f}, {0.0f, 0.8f, -0.7f}, {-0.55f, 0.9f, -0.5f}, {-0.5f, 0.8f, 0.1f}, // 44-49
-
-    // Sole Vertices
-    {0.0f, 0.0f, 0.2f}, {0.4f, 0.0f, -0.5f}, {-0.4f, 0.0f, -0.5f}, // 50-52
-
-    // Intermediate Ring (Top of Foot - Metatarsals)
-    {0.35f, 0.6f, 0.5f}, {0.1f, 0.7f, 0.4f}, {-0.15f, 0.65f, 0.4f}, {-0.35f, 0.5f, 0.4f}, {-0.5f, 0.45f, 0.3f}, // 53-57
-
-    // Intermediate Ring (Bottom of Foot - Ball)
-    {0.2f, 0.0f, 0.7f}, {0.0f, 0.0f, 0.65f}, {-0.2f, 0.0f, 0.6f}, {-0.4f, 0.0f, 0.5f}, // 58-61
-
-    // Upper Ankle Vertices
-    {0.0f, 1.2f, 0.2f}, {0.3f, 1.1f, 0.1f}, {0.35f, 1.2f, -0.4f}, {0.0f, 1.1f, -0.6f}, {-0.35f, 1.2f, -0.4f}, {-0.3f, 1.1f, 0.1f}, // 62-67
-
-    // Side Wall Vertices
-    {0.4f, 0.4f, 0.0f},  // 68 - Inner side wall center
-    {-0.45f, 0.4f, 0.0f},// 69 - Outer side wall center
-
-    // Sole Arch Vertices
-    {0.2f, 0.0f, -0.1f}, // 70 - Inner arch
-    {-0.2f, 0.0f, -0.1f},// 71 - Outer arch
-
-    // Heel Curve Vertices
-    {0.3f, 0.4f, -0.7f}, // 72 - Inner heel curve
-    {0.0f, 0.3f, -0.85f},// 73 - Back heel curve
-    {-0.3f, 0.4f, -0.7f} // 74 - Outer heel curve
+    // Sides + ankle + heel + arch (rest of foot, same as before) ...
+    {0.3f, 0.0f, 0.8f}, {0.3f, 0.4f, 0.8f}, {-0.6f, 0.0f, 0.6f}, {-0.6f, 0.3f, 0.6f},
+    {0.0f, 0.9f, 0.2f}, {0.5f, 0.8f, 0.1f}, {0.55f, 0.9f, -0.5f}, {0.0f, 0.8f, -0.7f}, {-0.55f, 0.9f, -0.5f}, {-0.5f, 0.8f, 0.1f},
+    {0.0f, 0.0f, 0.2f}, {0.4f, 0.0f, -0.5f}, {-0.4f, 0.0f, -0.5f},
+    {0.35f, 0.6f, 0.5f}, {0.1f, 0.7f, 0.4f}, {-0.15f, 0.65f, 0.4f}, {-0.35f, 0.5f, 0.4f}, {-0.5f, 0.45f, 0.3f},
+    {0.2f, 0.0f, 0.7f}, {0.0f, 0.0f, 0.65f}, {-0.2f, 0.0f, 0.6f}, {-0.4f, 0.0f, 0.5f},
+    {0.0f, 1.2f, 0.2f}, {0.3f, 1.1f, 0.1f}, {0.35f, 1.2f, -0.4f}, {0.0f, 1.1f, -0.6f}, {-0.35f, 1.2f, -0.4f}, {-0.3f, 1.1f, 0.1f},
+    {0.4f, 0.4f, 0.0f}, {-0.45f, 0.4f, 0.0f}, {0.2f, 0.0f, -0.1f}, {-0.2f, 0.0f, -0.1f},
+    {0.3f, 0.4f, -0.7f}, {0.0f, 0.3f, -0.85f}, {-0.3f, 0.4f, -0.7f}
 };
 
 const int gFootQuads[][4] = {
@@ -134,7 +111,7 @@ const int gFootQuads[][4] = {
 };
 
 const int gNumFootVertices = sizeof(gFootVertices) / sizeof(gFootVertices[0]);
-const int gNumFootQuads    = sizeof(gFootQuads)    / sizeof(gFootQuads[0]);
+const int gNumFootQuads = sizeof(gFootQuads) / sizeof(gFootQuads[0]);
 
 // --------------------- Math Helpers ---------------------
 Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
@@ -172,87 +149,86 @@ void addRingQuads(int ring1StartIdx, int ring2StartIdx, int numSegments) {
     }
 }
 
-inline Vec3f lerp(const Vec3f& a, const Vec3f& b, float t) {
-    return { a.x + (b.x - a.x)*t, a.y + (b.y - a.y)*t, a.z + (b.z - a.z)*t };
-}
 inline Vec3f rotateY(const Vec3f& v, float ang) {
     float s = std::sin(ang), c = std::cos(ang);
-    return { c*v.x + s*v.z, v.y, -s*v.x + c*v.z };
+    return { c * v.x + s * v.z, v.y, -s * v.x + c * v.z };
 }
 
-// --------------------- Build Mesh (Leg + Your Foot) ---------------------
+// --------------------- Build Mesh (Leg + Foot) ---------------------
 void buildLegMesh() {
     gAllVertices.clear();
     gAllQuads.clear();
 
-    const int legSegments = 12;
+    const int legSegments = 24;   // smoother leg
+    const float legScale = 0.7f;  // make thinner (<1.0 = thinner)
+
     int currentVertexIndex = 0;
 
-    // ----- Ankle Ring (12) -----
+    // ----- Ankle Ring -----
     int ankleRingIdx = currentVertexIndex;
-    auto ankleRing = generateRing(0.0f, 0.9f, -0.3f, 0.5f, 0.4f, legSegments);
+    auto ankleRing = generateRing(0.0f, 0.9f, -0.3f, 0.5f * legScale, 0.4f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), ankleRing.begin(), ankleRing.end());
     currentVertexIndex += legSegments;
 
     // ----- Lower Shin -----
     int lowerShinRingIdx = currentVertexIndex;
-    auto lowerShinRing = generateRing(0.0f, 1.45f, -0.2f, 0.55f, 0.45f, legSegments);
+    auto lowerShinRing = generateRing(0.0f, 1.45f, -0.2f, 0.55f * legScale, 0.45f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), lowerShinRing.begin(), lowerShinRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(ankleRingIdx, lowerShinRingIdx, legSegments);
 
     // ----- Lower Calf -----
     int lowerCalfRingIdx = currentVertexIndex;
-    auto lowerCalfRing = generateRing(0.0f, 2.0f, -0.2f, 0.6f, 0.5f, legSegments);
+    auto lowerCalfRing = generateRing(0.0f, 2.0f, -0.2f, 0.6f * legScale, 0.5f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), lowerCalfRing.begin(), lowerCalfRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(lowerShinRingIdx, lowerCalfRingIdx, legSegments);
 
     // ----- Mid Calf -----
     int midCalfRingIdx = currentVertexIndex;
-    auto midCalfRing = generateRing(0.0f, 2.75f, 0.0f, 0.7f, 0.6f, legSegments);
+    auto midCalfRing = generateRing(0.0f, 2.75f, 0.0f, 0.7f * legScale, 0.6f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), midCalfRing.begin(), midCalfRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(lowerCalfRingIdx, midCalfRingIdx, legSegments);
 
     // ----- Upper Calf -----
     int upperCalfRingIdx = currentVertexIndex;
-    auto upperCalfRing = generateRing(0.0f, 3.5f, 0.1f, 0.65f, 0.55f, legSegments);
+    auto upperCalfRing = generateRing(0.0f, 3.5f, 0.1f, 0.65f * legScale, 0.55f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), upperCalfRing.begin(), upperCalfRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(midCalfRingIdx, upperCalfRingIdx, legSegments);
 
     // ----- Knee -----
     int kneeRingIdx = currentVertexIndex;
-    auto kneeRing = generateRing(0.0f, 4.5f, 0.2f, 0.7f, 0.6f, legSegments);
+    auto kneeRing = generateRing(0.0f, 4.5f, 0.2f, 0.7f * legScale, 0.6f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), kneeRing.begin(), kneeRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(upperCalfRingIdx, kneeRingIdx, legSegments);
 
     // ----- Lower Thigh -----
     int lowerThighRingIdx = currentVertexIndex;
-    auto lowerThighRing = generateRing(0.0f, 5.5f, 0.1f, 0.8f, 0.7f, legSegments);
+    auto lowerThighRing = generateRing(0.0f, 5.5f, 0.1f, 0.8f * legScale, 0.7f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), lowerThighRing.begin(), lowerThighRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(kneeRingIdx, lowerThighRingIdx, legSegments);
 
     // ----- Mid Thigh -----
     int midThighRingIdx = currentVertexIndex;
-    auto midThighRing = generateRing(0.0f, 6.5f, 0.0f, 0.9f, 0.8f, legSegments);
+    auto midThighRing = generateRing(0.0f, 6.5f, 0.0f, 0.9f * legScale, 0.8f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), midThighRing.begin(), midThighRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(lowerThighRingIdx, midThighRingIdx, legSegments);
 
     // ----- Upper Thigh -----
     int upperThighRingIdx = currentVertexIndex;
-    auto upperThighRing = generateRing(0.0f, 7.5f, -0.1f, 0.95f, 0.85f, legSegments);
+    auto upperThighRing = generateRing(0.0f, 7.5f, -0.1f, 0.95f * legScale, 0.85f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), upperThighRing.begin(), upperThighRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(midThighRingIdx, upperThighRingIdx, legSegments);
 
     // ----- Hip -----
     int hipRingIdx = currentVertexIndex;
-    auto hipRing = generateRing(0.0f, 8.5f, -0.2f, 1.0f, 0.9f, legSegments);
+    auto hipRing = generateRing(0.0f, 8.5f, -0.2f, 1.0f * legScale, 0.9f * legScale, legSegments);
     gAllVertices.insert(gAllVertices.end(), hipRing.begin(), hipRing.end());
     currentVertexIndex += legSegments;
     addRingQuads(upperThighRingIdx, hipRingIdx, legSegments);
@@ -267,15 +243,18 @@ void buildLegMesh() {
     // ====== APPEND YOUR FOOT (transform + adapter ring) ======
     const float footScaleX = 0.95f;
     const float footScaleZ = 0.95f;
-    const float footLift   = 0.0f;   // bring the foot’s own ankle ring to y≈0.9
+    const float footLift = 0.0f;   // bring the foot’s own ankle ring to y≈0.9
     const float footShiftZ = -0.15f;  // tuck toward the shin
-    const float footYaw    = 0.0f;    // Y-rotation if you want toe-out/in
+    const float footYaw = 0.0f;    // Y-rotation if you want toe-out/in
 
     int footStartIdx = currentVertexIndex;
     for (int i = 0; i < gNumFootVertices; ++i) {
         Vec3f v = gFootVertices[i];
-        v.x *= footScaleX;
-        v.z *= footScaleZ;
+
+        // scale foot together with leg
+        v.x *= footScaleX * legScale;
+        v.z *= footScaleZ * legScale;
+
         v = rotateY(v, footYaw);
         v.y += footLift;
         v.z += footShiftZ;

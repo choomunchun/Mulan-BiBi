@@ -1,15 +1,16 @@
 #include <Windows.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <vector>
 #include <cstdio>
-#include <algorithm> // For std::swap
+#include <algorithm>
 
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
 
-#define WINDOW_TITLE "Anatomically-Correct Leg Viewer (Final Rebuild)"
+#define WINDOW_TITLE "Rounded Connected Leg Model (with Your Foot)"
 
 // --------------------- Global State ---------------------
 int   gWidth = 800;
@@ -25,7 +26,7 @@ struct Vec3 { float x, y, z; };
 Vec3  gTarget = { 0.0f, 4.0f, 0.0f };
 float gYaw = 0.2f;
 float gPitch = 0.1f;
-float gDist = 18.0f; // Increased distance slightly to see both legs
+float gDist = 18.0f;
 
 bool keyW = false, keyS = false, keyA = false, keyD = false;
 
@@ -34,150 +35,338 @@ LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 // --------------------- Vertex/Face Data ---------------------
 struct Vec3f { float x, y, z; };
 
-// Vertices for the left leg model
-const Vec3f gFootVertices[] = {
-    // Toes (5 distinct toes)
-    // Big Toe
-    {0.25f, 0.0f, 1.4f}, {0.1f, 0.0f, 1.45f}, {0.1f, 0.25f, 1.45f}, {0.25f, 0.25f, 1.4f}, // 0-3 Tip
-    {0.25f, 0.0f, 1.2f}, {0.1f, 0.0f, 1.2f}, {0.1f, 0.3f, 1.2f}, {0.25f, 0.3f, 1.2f}, // 4-7 Knuckle
-    // 2nd Toe
-    {0.05f, 0.0f, 1.4f}, {-0.1f, 0.0f, 1.35f}, {-0.1f, 0.2f, 1.35f}, {0.05f, 0.2f, 1.4f}, // 8-11 Tip
-    {0.05f, 0.0f, 1.15f}, {-0.1f, 0.0f, 1.15f}, {-0.1f, 0.25f, 1.15f}, {0.05f, 0.25f, 1.15f}, // 12-15 Knuckle
-    // 3rd Toe
-    {-0.15f, 0.0f, 1.3f}, {-0.28f, 0.0f, 1.25f}, {-0.28f, 0.18f, 1.25f}, {-0.15f, 0.18f, 1.3f}, // 16-19 Tip
-    {-0.15f, 0.0f, 1.1f}, {-0.28f, 0.0f, 1.1f}, {-0.28f, 0.22f, 1.1f}, {-0.15f, 0.22f, 1.1f}, // 20-23 Knuckle
-    // 4th Toe
-    {-0.32f, 0.0f, 1.2f}, {-0.42f, 0.0f, 1.1f}, {-0.42f, 0.16f, 1.1f}, {-0.32f, 0.16f, 1.2f}, // 24-27 Tip
-    {-0.32f, 0.0f, 1.0f}, {-0.42f, 0.0f, 1.0f}, {-0.42f, 0.2f, 1.0f}, {-0.32f, 0.2f, 1.0f}, // 28-31 Knuckle
-    // 5th Toe
-    {-0.46f, 0.0f, 1.0f}, {-0.55f, 0.0f, 0.9f}, {-0.55f, 0.14f, 0.9f}, {-0.46f, 0.14f, 1.0f}, // 32-35 Tip
-    {-0.46f, 0.0f, 0.8f}, {-0.55f, 0.0f, 0.8f}, {-0.55f, 0.18f, 0.8f}, {-0.46f, 0.18f, 0.8f}, // 36-39 Knuckle
-
-    // Foot Body
-    {0.3f, 0.0f, 0.8f}, {0.3f, 0.4f, 0.8f}, // 40-41 (Side of Big Toe)
-    {-0.6f, 0.0f, 0.6f}, {-0.6f, 0.3f, 0.6f}, // 42-43 (Side of Pinky)
-
-    // Arch and Ankle Ring
-    {0.0f, 0.9f, 0.2f}, {0.5f, 0.8f, 0.1f}, {0.55f, 0.9f, -0.5f}, {0.0f, 0.8f, -0.7f}, {-0.55f, 0.9f, -0.5f}, {-0.5f, 0.8f, 0.1f}, // 44-49
-    {0.0f, 0.0f, 0.2f}, {0.4f, 0.0f, -0.5f}, {-0.4f, 0.0f, -0.5f}, // 50-52 (Sole)
-
-    // Leg Rings
-    // Ring 4: Lower Calf
-    {0.0f, 2.0f, -0.1f}, {-0.6f, 1.9f, -0.3f}, {-0.6f, 2.2f, -0.9f}, {0.0f, 2.3f, -1.0f}, {0.6f, 2.2f, -0.9f}, {0.6f, 1.9f, -0.3f}, // 53-58
-    // Ring 5: Upper Calf / Shin
-    {0.0f, 3.5f, 0.1f}, {-0.5f, 3.4f, -0.1f}, {-0.55f, 3.8f, -0.7f}, {0.0f, 3.9f, -0.8f}, {0.55f, 3.8f, -0.7f}, {0.5f, 3.4f, -0.1f}, // 59-64
-    // Ring 6: Knee
-    {0.0f, 4.5f, 0.3f}, {-0.45f, 4.4f, 0.2f}, {-0.5f, 4.5f, -0.6f}, {0.0f, 4.4f, -0.7f}, {0.5f, 4.5f, -0.6f}, {0.45f, 4.4f, 0.2f}, // 65-70
-    // Ring 7: Lower Thigh
-    {0.0f, 6.0f, 0.2f}, {-0.7f, 5.8f, 0.0f}, {-0.75f, 6.2f, -0.5f}, {0.0f, 6.3f, -0.6f}, {0.75f, 6.2f, -0.5f}, {0.7f, 5.8f, 0.0f}, // 71-76
-    // Ring 8: Upper Thigh
-    {0.0f, 8.0f, 0.1f}, {-0.7f, 7.9f, -0.1f}, {-0.75f, 8.1f, -0.4f}, {0.0f, 8.2f, -0.5f}, {0.75f, 8.1f, -0.4f}, {0.7f, 7.9f, -0.1f}, // 77-82
-};
-
-// Faces connecting the vertices
-const int gFootQuads[][4] = {
-    // Toes
-    {0,1,2,3}, {4,5,1,0}, {7,6,2,3}, {4,0,3,7}, {5,4,7,6}, // Big Toe
-    {8,9,10,11}, {12,13,9,8}, {15,14,10,11}, {12,8,11,15}, {13,12,15,14}, // 2nd Toe
-    {16,17,18,19}, {20,21,17,16}, {23,22,18,19}, {20,16,19,23}, {21,20,23,22}, // 3rd Toe
-    {24,25,26,27}, {28,29,25,24}, {31,30,26,27}, {28,24,27,31}, {29,28,31,30}, // 4th Toe
-    {32,33,34,35}, {36,37,33,32}, {39,38,34,35}, {36,32,35,39}, {37,36,39,38}, // 5th Toe
-
-    // Connect Toes to Foot Body
-    {4, 40, 41, 7}, {12, 4, 7, 15}, {20, 12, 15, 23}, {28, 20, 23, 31}, {36, 28, 31, 39},
-    {39, 36, 42, 43},
-    {40, 5, 13, 12}, {5, 4, 12, -1}, // Sole connections
-    {13,21,20,12}, {21,29,28,20}, {29,37,36,28}, {37,42,36,-1},
-    {5, 50, 13, -1}, {13, 50, 21, -1}, {21, 50, 29, -1}, {29, 50, 37, -1}, {37, 50, 42, -1},
-
-
-    // Top Foot to Ankle
-    {41, 45, 49, 43}, {41, 44, 45, -1},
-    {15, 14, 49, 45}, {23, 22, 14, 15}, {31, 30, 22, 23}, {39, 38, 30, 31},
-    {43, 38, 39, -1}, {43, 49, 38, -1},
-
-    // Ankle Ring to Leg
-    {44, 53, 58, 45}, {45, 58, 52, 46}, {46, 52, 51, 47}, {47, 51, 57, 48}, {48, 57, 54, 49}, {49, 54, 53, 44},
-    // Sole to Ankle
-    {50, 52, 51, -1}, {40, 41, 45, 46}, {46, 52, 47}, {40, 46, 45, -1},
-    {42, 43, 49, 48}, {48, 51, 47, -1}, {42, 48, 49, -1},
-    {50, 40, 46, 52}, {50, 42, 48, 51}, {50, 40, 52,-1},{50, 42, 51, -1},
-
-
-    // Leg
-    {53, 59, 60, 54}, {54, 60, 61, 55}, {55, 61, 62, 56}, {56, 62, 63, 57}, {57, 63, 64, 58}, {58, 64, 59, 53},
-    {59, 65, 66, 60}, {60, 66, 67, 61}, {61, 67, 68, 62}, {62, 68, 69, 63}, {63, 69, 70, 64}, {64, 70, 65, 59},
-    {65, 71, 72, 66}, {66, 72, 73, 67}, {67, 73, 74, 68}, {68, 74, 75, 69}, {69, 75, 76, 70}, {70, 76, 71, 65},
-    {71, 77, 78, 72}, {72, 78, 79, 73}, {73, 79, 80, 74}, {74, 80, 81, 75}, {75, 81, 82, 76}, {76, 82, 77, 71},
-    // Thigh Cap
-    {82, 81, 80, -1}, {82, 80, 79, -1}, {82, 79, 78, -1}, {82, 78, 77, -1},
-};
-
-// --------------------- Triangulation + Normal Calculation ---------------------
+std::vector<Vec3f> gAllVertices;
+std::vector<std::vector<int>> gAllQuads;
 struct Tri { int a, b, c; };
 std::vector<Tri>   gTris;
 std::vector<Vec3f> gVertexNormals;
 Vec3f gModelCenter{ 0,0,0 };
 
+// --------------------- YOUR FOOT (vertices + faces) ---------------------
+// (Exactly the foot you supplied; unchanged)
+const Vec3f gFootVertices[] = {
+    // Toes (5 distinct toes)
+    {0.25f, 0.0f, 1.4f}, {0.1f, 0.0f, 1.45f}, {0.1f, 0.25f, 1.45f}, {0.25f, 0.25f, 1.4f}, // 0-3 Big Toe Tip
+    {0.25f, 0.0f, 1.2f}, {0.1f, 0.0f, 1.2f}, {0.1f, 0.3f, 1.2f}, {0.25f, 0.3f, 1.2f}, // 4-7 Big Toe Knuckle
+    {0.05f, 0.0f, 1.4f}, {-0.1f, 0.0f, 1.35f}, {-0.1f, 0.2f, 1.35f}, {0.05f, 0.2f, 1.4f}, // 8-11 2nd Toe Tip
+    {0.05f, 0.0f, 1.15f}, {-0.1f, 0.0f, 1.15f}, {-0.1f, 0.25f, 1.15f}, {0.05f, 0.25f, 1.15f}, // 12-15 2nd Toe Knuckle
+    {-0.15f, 0.0f, 1.3f}, {-0.28f, 0.0f, 1.25f}, {-0.28f, 0.18f, 1.25f}, {-0.15f, 0.18f, 1.3f}, // 16-19 3rd Toe Tip
+    {-0.15f, 0.0f, 1.1f}, {-0.28f, 0.0f, 1.1f}, {-0.28f, 0.22f, 1.1f}, {-0.15f, 0.22f, 1.1f}, // 20-23 3rd Toe Knuckle
+    {-0.32f, 0.0f, 1.2f}, {-0.42f, 0.0f, 1.1f}, {-0.42f, 0.16f, 1.1f}, {-0.32f, 0.16f, 1.2f}, // 24-27 4th Toe Tip
+    {-0.32f, 0.0f, 1.0f}, {-0.42f, 0.0f, 1.0f}, {-0.42f, 0.2f, 1.0f}, {-0.32f, 0.2f, 1.0f}, // 28-31 4th Toe Knuckle
+    {-0.46f, 0.0f, 1.0f}, {-0.55f, 0.0f, 0.9f}, {-0.55f, 0.14f, 0.9f}, {-0.46f, 0.14f, 1.0f}, // 32-35 5th Toe Tip
+    {-0.46f, 0.0f, 0.8f}, {-0.55f, 0.0f, 0.8f}, {-0.55f, 0.18f, 0.8f}, {-0.46f, 0.18f, 0.8f}, // 36-39 5th Toe Knuckle
+
+    // Foot Body Sides
+    {0.3f, 0.0f, 0.8f}, {0.3f, 0.4f, 0.8f}, // 40-41 (Side of Big Toe)
+    {-0.6f, 0.0f, 0.6f}, {-0.6f, 0.3f, 0.6f}, // 42-43 (Side of Pinky)
+
+    // Lower Ankle Ring / Heel connection points
+    {0.0f, 0.9f, 0.2f}, {0.5f, 0.8f, 0.1f}, {0.55f, 0.9f, -0.5f}, {0.0f, 0.8f, -0.7f}, {-0.55f, 0.9f, -0.5f}, {-0.5f, 0.8f, 0.1f}, // 44-49
+
+    // Sole Vertices
+    {0.0f, 0.0f, 0.2f}, {0.4f, 0.0f, -0.5f}, {-0.4f, 0.0f, -0.5f}, // 50-52
+
+    // Intermediate Ring (Top of Foot - Metatarsals)
+    {0.35f, 0.6f, 0.5f}, {0.1f, 0.7f, 0.4f}, {-0.15f, 0.65f, 0.4f}, {-0.35f, 0.5f, 0.4f}, {-0.5f, 0.45f, 0.3f}, // 53-57
+
+    // Intermediate Ring (Bottom of Foot - Ball)
+    {0.2f, 0.0f, 0.7f}, {0.0f, 0.0f, 0.65f}, {-0.2f, 0.0f, 0.6f}, {-0.4f, 0.0f, 0.5f}, // 58-61
+
+    // Upper Ankle Vertices
+    {0.0f, 1.2f, 0.2f}, {0.3f, 1.1f, 0.1f}, {0.35f, 1.2f, -0.4f}, {0.0f, 1.1f, -0.6f}, {-0.35f, 1.2f, -0.4f}, {-0.3f, 1.1f, 0.1f}, // 62-67
+
+    // Side Wall Vertices
+    {0.4f, 0.4f, 0.0f},  // 68 - Inner side wall center
+    {-0.45f, 0.4f, 0.0f},// 69 - Outer side wall center
+
+    // Sole Arch Vertices
+    {0.2f, 0.0f, -0.1f}, // 70 - Inner arch
+    {-0.2f, 0.0f, -0.1f},// 71 - Outer arch
+
+    // Heel Curve Vertices
+    {0.3f, 0.4f, -0.7f}, // 72 - Inner heel curve
+    {0.0f, 0.3f, -0.85f},// 73 - Back heel curve
+    {-0.3f, 0.4f, -0.7f} // 74 - Outer heel curve
+};
+
+const int gFootQuads[][4] = {
+    // Toes
+    {0,1,2,3}, {4,5,1,0}, {7,6,2,3}, {4,0,3,7}, {5,4,7,6},
+    {8,9,10,11}, {12,13,9,8}, {15,14,10,11}, {12,8,11,15}, {13,12,15,14},
+    {16,17,18,19}, {20,21,17,16}, {23,22,18,19}, {20,16,19,23}, {21,20,23,22},
+    {24,25,26,27}, {28,29,25,24}, {31,30,26,27}, {28,24,27,31}, {29,28,31,30},
+    {32,33,34,35}, {36,37,33,32}, {39,38,34,35}, {36,32,35,39}, {37,36,39,38},
+
+    // === FOOT BODY ===
+    {40, 41, 7, 5},   // Inner side near big toe
+    {42, 43, 39, 37}, // Outer side near pinky
+
+    // Top of Foot
+    {7, 15, 54, 53}, {15, 23, 55, 54}, {23, 31, 56, 55}, {31, 39, 57, 56},
+    {41, 7, 53, -1}, {43, 39, 57, -1},
+    {53, 54, 44, 45}, {54, 55, 49, 44}, {55, 56, 48, 49}, {56, 57, 48, -1},
+
+    // Sole of Foot with Arch
+    {5, 13, 59, 58}, {13, 21, 60, 59}, {21, 29, 61, 60},
+    {29, 37, 61, -1}, {37, 42, 61, -1},
+    {40, 5, 58, -1},
+    {58, 59, 70, 50}, {59, 60, 71, 70}, {60, 61, 52, 71},
+    {70, 71, 52, 51}, {50, 70, 51, -1},
+
+    // Detailed Side Walls
+    {41, 53, 68, -1}, {53, 45, 68, -1}, {40, 41, 68, -1},
+    {43, 57, 69, -1}, {57, 48, 69, -1}, {42, 43, 69, -1},
+
+    // Detailed Heel
+    {51, 73, 72, -1}, {52, 74, 73, 51},
+    {46, 47, 72, -1}, {72, 47, 73, -1}, {73, 47, 74, -1}, {48, 47, 74, -1},
+
+    // === ANKLE STRUCTURE ===
+    {45, 44, 62, 63}, {44, 49, 67, 62}, {49, 48, 66, 67},
+    {48, 47, 65, 66}, {47, 46, 64, 65}, {46, 45, 63, 64},
+    {62, 63, 64, 65}, {62, 65, 66, 67},
+
+    // FINAL PATCHES (toe gaps + side walls)
+    {68, 45, 46, 72}, {68, 72, 51, -1}, {68, 51, 70, -1}, {68, 70, 50, 40},
+    {69, 48, 47, 74}, {69, 74, 52, -1}, {69, 52, 71, -1}, {69, 71, 61, 42},
+    {7, 15, 13, 5}, {15, 23, 21, 13}, {23, 31, 29, 21}, {31, 39, 37, 29}
+};
+
+const int gNumFootVertices = sizeof(gFootVertices) / sizeof(gFootVertices[0]);
+const int gNumFootQuads    = sizeof(gFootQuads)    / sizeof(gFootQuads[0]);
+
+// --------------------- Math Helpers ---------------------
 Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
 Vec3f cross(const Vec3f& a, const Vec3f& b) {
     return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x };
 }
 float dot(const Vec3f& a, const Vec3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
 Vec3f normalize(const Vec3f& v) {
     float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
     return (l > 1e-6f) ? Vec3f{ v.x / l, v.y / l, v.z / l } : Vec3f{ 0,0,0 };
 }
 
+Vec3 normalize(const Vec3& v) {
+    float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    return (l > 1e-6f) ? Vec3{ v.x / l, v.y / l, v.z / l } : Vec3{ 0,0,0 };
+}
+
+std::vector<Vec3f> generateRing(float cx, float cy, float cz, float radiusX, float radiusZ, int numSegments, float startAngle = 0.0f) {
+    std::vector<Vec3f> ringVertices;
+    for (int i = 0; i < numSegments; ++i) {
+        float angle = startAngle + 2.0f * (float)M_PI * i / numSegments;
+        ringVertices.push_back({ cx + radiusX * std::sin(angle), cy, cz + radiusZ * std::cos(angle) });
+    }
+    return ringVertices;
+}
+
+void addRingQuads(int ring1StartIdx, int ring2StartIdx, int numSegments) {
+    for (int i = 0; i < numSegments; ++i) {
+        int i0 = ring1StartIdx + i;
+        int i1 = ring1StartIdx + (i + 1) % numSegments;
+        int i2 = ring2StartIdx + (i + 1) % numSegments;
+        int i3 = ring2StartIdx + i;
+        gAllQuads.push_back({ i0, i1, i2, i3 });
+    }
+}
+
+inline Vec3f lerp(const Vec3f& a, const Vec3f& b, float t) {
+    return { a.x + (b.x - a.x)*t, a.y + (b.y - a.y)*t, a.z + (b.z - a.z)*t };
+}
+inline Vec3f rotateY(const Vec3f& v, float ang) {
+    float s = std::sin(ang), c = std::cos(ang);
+    return { c*v.x + s*v.z, v.y, -s*v.x + c*v.z };
+}
+
+// --------------------- Build Mesh (Leg + Your Foot) ---------------------
+void buildLegMesh() {
+    gAllVertices.clear();
+    gAllQuads.clear();
+
+    const int legSegments = 12;
+    int currentVertexIndex = 0;
+
+    // ----- Ankle Ring (12) -----
+    int ankleRingIdx = currentVertexIndex;
+    auto ankleRing = generateRing(0.0f, 0.9f, -0.3f, 0.5f, 0.4f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), ankleRing.begin(), ankleRing.end());
+    currentVertexIndex += legSegments;
+
+    // ----- Lower Shin -----
+    int lowerShinRingIdx = currentVertexIndex;
+    auto lowerShinRing = generateRing(0.0f, 1.45f, -0.2f, 0.55f, 0.45f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), lowerShinRing.begin(), lowerShinRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(ankleRingIdx, lowerShinRingIdx, legSegments);
+
+    // ----- Lower Calf -----
+    int lowerCalfRingIdx = currentVertexIndex;
+    auto lowerCalfRing = generateRing(0.0f, 2.0f, -0.2f, 0.6f, 0.5f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), lowerCalfRing.begin(), lowerCalfRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(lowerShinRingIdx, lowerCalfRingIdx, legSegments);
+
+    // ----- Mid Calf -----
+    int midCalfRingIdx = currentVertexIndex;
+    auto midCalfRing = generateRing(0.0f, 2.75f, 0.0f, 0.7f, 0.6f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), midCalfRing.begin(), midCalfRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(lowerCalfRingIdx, midCalfRingIdx, legSegments);
+
+    // ----- Upper Calf -----
+    int upperCalfRingIdx = currentVertexIndex;
+    auto upperCalfRing = generateRing(0.0f, 3.5f, 0.1f, 0.65f, 0.55f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), upperCalfRing.begin(), upperCalfRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(midCalfRingIdx, upperCalfRingIdx, legSegments);
+
+    // ----- Knee -----
+    int kneeRingIdx = currentVertexIndex;
+    auto kneeRing = generateRing(0.0f, 4.5f, 0.2f, 0.7f, 0.6f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), kneeRing.begin(), kneeRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(upperCalfRingIdx, kneeRingIdx, legSegments);
+
+    // ----- Lower Thigh -----
+    int lowerThighRingIdx = currentVertexIndex;
+    auto lowerThighRing = generateRing(0.0f, 5.5f, 0.1f, 0.8f, 0.7f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), lowerThighRing.begin(), lowerThighRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(kneeRingIdx, lowerThighRingIdx, legSegments);
+
+    // ----- Mid Thigh -----
+    int midThighRingIdx = currentVertexIndex;
+    auto midThighRing = generateRing(0.0f, 6.5f, 0.0f, 0.9f, 0.8f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), midThighRing.begin(), midThighRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(lowerThighRingIdx, midThighRingIdx, legSegments);
+
+    // ----- Upper Thigh -----
+    int upperThighRingIdx = currentVertexIndex;
+    auto upperThighRing = generateRing(0.0f, 7.5f, -0.1f, 0.95f, 0.85f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), upperThighRing.begin(), upperThighRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(midThighRingIdx, upperThighRingIdx, legSegments);
+
+    // ----- Hip -----
+    int hipRingIdx = currentVertexIndex;
+    auto hipRing = generateRing(0.0f, 8.5f, -0.2f, 1.0f, 0.9f, legSegments);
+    gAllVertices.insert(gAllVertices.end(), hipRing.begin(), hipRing.end());
+    currentVertexIndex += legSegments;
+    addRingQuads(upperThighRingIdx, hipRingIdx, legSegments);
+
+    // ----- Top Cap -----
+    int topCenterIdx = currentVertexIndex++;
+    gAllVertices.push_back({ 0.0f, 8.7f, -0.2f });
+    for (int i = 0; i < legSegments; ++i) {
+        gAllQuads.push_back({ hipRingIdx + i, hipRingIdx + (i + 1) % legSegments, topCenterIdx, -1 });
+    }
+
+    // ====== APPEND YOUR FOOT (transform + adapter ring) ======
+    const float footScaleX = 0.95f;
+    const float footScaleZ = 0.95f;
+    const float footLift   = 0.0f;   // bring the foot’s own ankle ring to y≈0.9
+    const float footShiftZ = -0.15f;  // tuck toward the shin
+    const float footYaw    = 0.0f;    // Y-rotation if you want toe-out/in
+
+    int footStartIdx = currentVertexIndex;
+    for (int i = 0; i < gNumFootVertices; ++i) {
+        Vec3f v = gFootVertices[i];
+        v.x *= footScaleX;
+        v.z *= footScaleZ;
+        v = rotateY(v, footYaw);
+        v.y += footLift;
+        v.z += footShiftZ;
+        gAllVertices.push_back(v);
+        ++currentVertexIndex;
+    }
+
+    // Add foot faces (all quads/tri fans)
+    for (int i = 0; i < gNumFootQuads; ++i) {
+        std::vector<int> quad;
+        for (int j = 0; j < 4; ++j) {
+            int idx = gFootQuads[i][j];
+            if (idx == -1) break;
+            quad.push_back(footStartIdx + idx);
+        }
+        gAllQuads.push_back(quad);
+    }
+
+    // Build a 12-vertex adapter from foot ring (indices 44..49) and stitch to ankleRingIdx
+    int footRingStart = footStartIdx + 44;
+    int footRingCount = 6;
+
+    int adapterStartIdx = currentVertexIndex;
+    for (int i = 0; i < 12; ++i) {
+        float s = (i / 12.0f) * footRingCount;
+        int k = (int)std::floor(s);
+        float t = s - k;
+        int k0 = (k) % footRingCount;
+        int k1 = (k + 1) % footRingCount;
+
+        const Vec3f& a = gAllVertices[footRingStart + k0];
+        const Vec3f& b = gAllVertices[footRingStart + k1];
+        Vec3f sample = {
+            a.x + (b.x - a.x) * t,
+            a.y + (b.y - a.y) * t,
+            a.z + (b.z - a.z) * t
+        };
+
+        gAllVertices.push_back(sample);
+        ++currentVertexIndex;
+    }
+
+    // Now stitch leg ankle ring (ankleRingIdx, 12 verts) to adapter ring (12 verts)
+    addRingQuads(ankleRingIdx, adapterStartIdx, 12);
+}
+
+// --------------------- Triangles & Normals ---------------------
 Vec3f faceNormal(int i0, int i1, int i2) {
-    const Vec3f& v0 = gFootVertices[i0];
-    const Vec3f& v1 = gFootVertices[i1];
-    const Vec3f& v2 = gFootVertices[i2];
+    const Vec3f& v0 = gAllVertices[i0];
+    const Vec3f& v1 = gAllVertices[i1];
+    const Vec3f& v2 = gAllVertices[i2];
     return normalize(cross(sub(v1, v0), sub(v2, v0)));
 }
 
 Vec3f triCenter(int i0, int i1, int i2) {
-    const Vec3f& v0 = gFootVertices[i0];
-    const Vec3f& v1 = gFootVertices[i1];
-    const Vec3f& v2 = gFootVertices[i2];
+    const Vec3f& v0 = gAllVertices[i0];
+    const Vec3f& v1 = gAllVertices[i1];
+    const Vec3f& v2 = gAllVertices[i2];
     return { (v0.x + v1.x + v2.x) / 3.0f, (v0.y + v1.y + v2.y) / 3.0f, (v0.z + v1.z + v2.z) / 3.0f };
 }
 
 void buildTriangles()
 {
-    int nV = sizeof(gFootVertices) / sizeof(gFootVertices[0]);
+    size_t nV = gAllVertices.size();
     gModelCenter = { 0,0,0 };
-    for (int i = 0; i < nV; ++i) { gModelCenter.x += gFootVertices[i].x; gModelCenter.y += gFootVertices[i].y; gModelCenter.z += gFootVertices[i].z; }
-    gModelCenter.x /= nV; gModelCenter.y /= nV; gModelCenter.z /= nV;
+    for (size_t i = 0; i < nV; ++i) {
+        gModelCenter.x += gAllVertices[i].x;
+        gModelCenter.y += gAllVertices[i].y;
+        gModelCenter.z += gAllVertices[i].z;
+    }
+    if (nV > 0) {
+        gModelCenter.x /= nV; gModelCenter.y /= nV; gModelCenter.z /= nV;
+    }
 
     gTris.clear();
-    int nF = sizeof(gFootQuads) / sizeof(gFootQuads[0]);
-    for (int f = 0; f < nF; ++f) {
-        const int* q = gFootQuads[f];
-        if (q[3] == -1) {
+    for (const auto& q : gAllQuads) {
+        if (q.size() == 3 || (q.size() == 4 && q[3] == -1)) {
             int a = q[0], b = q[1], c = q[2];
-            Vec3f n = faceNormal(a, b, c);
-            Vec3f center = triCenter(a, b, c);
-            Vec3f outDir = sub(center, gModelCenter);
-            if (dot(n, outDir) < 0) std::swap(b, c);
+            if (dot(faceNormal(a, b, c), sub(triCenter(a, b, c), gModelCenter)) < 0) std::swap(b, c);
             gTris.push_back({ a,b,c });
         }
-        else {
+        else if (q.size() == 4) {
             int a = q[0], b = q[1], c = q[2], d = q[3];
             {
                 int i0 = a, i1 = b, i2 = d;
-                Vec3f n = faceNormal(i0, i1, i2);
-                Vec3f center = triCenter(i0, i1, i2);
-                Vec3f outDir = sub(center, gModelCenter);
-                if (dot(n, outDir) < 0) std::swap(i1, i2);
+                if (dot(faceNormal(i0, i1, i2), sub(triCenter(i0, i1, i2), gModelCenter)) < 0) std::swap(i1, i2);
                 gTris.push_back({ i0,i1,i2 });
             }
             {
                 int i0 = b, i1 = c, i2 = d;
-                Vec3f n = faceNormal(i0, i1, i2);
-                Vec3f center = triCenter(i0, i1, i2);
-                Vec3f outDir = sub(center, gModelCenter);
-                if (dot(n, outDir) < 0) std::swap(i1, i2);
+                if (dot(faceNormal(i0, i1, i2), sub(triCenter(i0, i1, i2), gModelCenter)) < 0) std::swap(i1, i2);
                 gTris.push_back({ i0,i1,i2 });
             }
         }
@@ -185,7 +374,8 @@ void buildTriangles()
 }
 
 void computeVertexNormals() {
-    int nV = sizeof(gFootVertices) / sizeof(gFootVertices[0]);
+    size_t nV = gAllVertices.size();
+    if (nV == 0) return;
     gVertexNormals.assign(nV, { 0.0f, 0.0f, 0.0f });
 
     for (const auto& t : gTris) {
@@ -194,10 +384,7 @@ void computeVertexNormals() {
         gVertexNormals[t.b].x += n.x; gVertexNormals[t.b].y += n.y; gVertexNormals[t.b].z += n.z;
         gVertexNormals[t.c].x += n.x; gVertexNormals[t.c].y += n.y; gVertexNormals[t.c].z += n.z;
     }
-
-    for (int i = 0; i < nV; ++i) {
-        gVertexNormals[i] = normalize(gVertexNormals[i]);
-    }
+    for (size_t i = 0; i < nV; ++i) gVertexNormals[i] = normalize(gVertexNormals[i]);
 }
 
 // --------------------- Forward Declarations ---------------------
@@ -206,7 +393,7 @@ bool initPixelFormat(HDC hdc);
 void display();
 void updateCameraByKeys(float dt);
 void computeEye(Vec3& eye);
-void drawLeg(bool mirrorX); // NEW: Forward declaration for our drawing function
+void drawLeg(bool mirrorX);
 
 // --------------------- WinMain ---------------------
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow)
@@ -222,7 +409,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow)
     HWND hWnd = CreateWindow(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight,
         NULL, NULL, wc.hInstance, NULL);
-    if (!hWnd) return 0;
 
     HDC hdc = GetDC(hWnd);
     if (!initPixelFormat(hdc)) return 0;
@@ -236,6 +422,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow)
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_NORMALIZE);
 
+    buildLegMesh();
     buildTriangles();
     computeVertexNormals();
 
@@ -255,6 +442,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow)
         LARGE_INTEGER now; QueryPerformanceCounter(&now);
         float dt = float(now.QuadPart - gPrev.QuadPart) / float(gFreq.QuadPart);
         gPrev = now;
+        if (dt > 0.1f) dt = 0.1f;
 
         updateCameraByKeys(dt);
         display();
@@ -274,65 +462,43 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     switch (msg)
     {
     case WM_DESTROY: PostQuitMessage(0); return 0;
-
     case WM_SIZE:
-        gWidth = LOWORD(lParam);
-        gHeight = HIWORD(lParam);
-        if (gWidth <= 0)  gWidth = 1;
-        if (gHeight <= 0) gHeight = 1;
+        gWidth = LOWORD(lParam); gHeight = HIWORD(lParam);
+        if (gWidth <= 0) gWidth = 1; if (gHeight <= 0) gHeight = 1;
         glViewport(0, 0, gWidth, gHeight);
         return 0;
-
     case WM_LBUTTONDOWN:
         gLMBDown = true; SetCapture(hWnd);
         gLastMouse.x = LOWORD(lParam); gLastMouse.y = HIWORD(lParam);
         return 0;
-
     case WM_LBUTTONUP:
         gLMBDown = false; ReleaseCapture(); return 0;
-
     case WM_MOUSEMOVE:
-        if (gLMBDown)
-        {
+        if (gLMBDown) {
             int mx = LOWORD(lParam), my = HIWORD(lParam);
             int dx = mx - gLastMouse.x, dy = my - gLastMouse.y;
             gLastMouse.x = mx; gLastMouse.y = my;
-            const float sens = 0.005f;
-            gYaw += dx * sens;
-            gPitch -= dy * sens;
-            const float limit = 1.55334f;
-            if (gPitch > limit) gPitch = limit;
-            if (gPitch < -limit) gPitch = -limit;
+            gYaw += dx * 0.005f; gPitch -= dy * 0.005f;
+            if (gPitch > 1.55f) gPitch = 1.55f; if (gPitch < -1.55f) gPitch = -1.55f;
         }
         return 0;
-
-    case WM_MOUSEWHEEL:
-    {
+    case WM_MOUSEWHEEL: {
         short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        float zoomFactor = 1.0f - (delta / 120.0f) * 0.1f;
-        gDist *= zoomFactor;
-        if (gDist < 2.0f) gDist = 2.0f;
-        if (gDist > 50.0f) gDist = 50.0f;
+        gDist *= (1.0f - (delta / 120.0f) * 0.1f);
+        if (gDist < 2.0f) gDist = 2.0f; if (gDist > 50.0f) gDist = 50.0f;
         return 0;
     }
-
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE) PostQuitMessage(0);
         else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 18.0f; gTarget = { 0.0f, 4.0f, 0.0f }; }
         else if (wParam == '1') { gShowWireframe = !gShowWireframe; }
-        else if (wParam == 'W')  keyW = true;
-        else if (wParam == 'S')  keyS = true;
-        else if (wParam == 'A')  keyA = true;
-        else if (wParam == 'D')  keyD = true;
+        else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
+        else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         return 0;
-
     case WM_KEYUP:
-        if (wParam == 'W') keyW = false;
-        else if (wParam == 'S') keyS = false;
-        else if (wParam == 'A') keyA = false;
-        else if (wParam == 'D') keyD = false;
+        if (wParam == 'W') keyW = false; else if (wParam == 'S') keyS = false;
+        else if (wParam == 'A') keyA = false; else if (wParam == 'D') keyD = false;
         return 0;
-
     default: return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 }
@@ -341,64 +507,33 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 bool initPixelFormat(HDC hdc)
 {
     PIXELFORMATDESCRIPTOR pfd{};
-    pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR);
-    pfd.nVersion = 1;
+    pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR); pfd.nVersion = 1;
     pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.iPixelType = PFD_TYPE_RGBA;
-    pfd.cColorBits = 32;
-    pfd.cAlphaBits = 8;
-    pfd.cDepthBits = 24;
+    pfd.iPixelType = PFD_TYPE_RGBA; pfd.cColorBits = 32; pfd.cDepthBits = 24;
     pfd.iLayerType = PFD_MAIN_PLANE;
-
     int pf = ChoosePixelFormat(hdc, &pfd);
-    if (pf == 0) return false;
-    return SetPixelFormat(hdc, pf, &pfd) == TRUE;
+    return (pf != 0 && SetPixelFormat(hdc, pf, &pfd));
 }
 
 // --------------------- Camera Control ---------------------
-void computeEye(Vec3& eye)
-{
-    float cp = std::cos(gPitch), sp = std::sin(gPitch);
-    float sy = std::sin(gYaw), cy = std::cos(gYaw);
-    eye.x = gTarget.x + gDist * cp * sy;
-    eye.y = gTarget.y + gDist * sp;
-    eye.z = gTarget.z + gDist * cp * cy;
+void computeEye(Vec3& eye) {
+    eye.x = gTarget.x + gDist * std::cos(gPitch) * std::sin(gYaw);
+    eye.y = gTarget.y + gDist * std::sin(gPitch);
+    eye.z = gTarget.z + gDist * std::cos(gPitch) * std::cos(gYaw);
 }
 
-void updateCameraByKeys(float dt)
-{
+void updateCameraByKeys(float dt) {
     Vec3 eye; computeEye(eye);
-    Vec3 forward = { gTarget.x - eye.x, gTarget.y - eye.y, gTarget.z - eye.z };
-    float fl = std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
-    if (fl > 1e-6f) { forward.x /= fl; forward.y /= fl; forward.z /= fl; }
-
-    Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
-    Vec3 right = {
-        forward.y * worldUp.z - forward.z * worldUp.y,
-        forward.z * worldUp.x - forward.x * worldUp.z,
-        forward.x * worldUp.y - forward.y * worldUp.x
-    };
-    float rl = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
-    if (rl > 1e-6f) { right.x /= rl; right.y /= rl; right.z /= rl; }
-
-    float moveSpeed = gDist * 0.8f;
-    float moveStep = moveSpeed * dt;
-
-    // W/S for Up/Down
-    if (keyW) { gTarget.y += moveStep; }
-    if (keyS) { gTarget.y -= moveStep; }
-
-    // A/D for Panning (strafing)
-    if (keyA) { gTarget.x -= right.x * moveStep;   gTarget.y -= right.y * moveStep;   gTarget.z -= right.z * moveStep; }
-    if (keyD) { gTarget.x += right.x * moveStep;   gTarget.y += right.y * moveStep;   gTarget.z += right.z * moveStep; }
+    Vec3 f = { gTarget.x - eye.x, 0, gTarget.z - eye.z };
+    f = normalize(f);
+    Vec3 r = { f.z, 0, -f.x };
+    float moveStep = gDist * 0.8f * dt;
+    if (keyW) { gTarget.y += moveStep; } if (keyS) { gTarget.y -= moveStep; }
+    if (keyA) { gTarget.x -= r.x * moveStep; gTarget.z -= r.z * moveStep; }
+    if (keyD) { gTarget.x += r.x * moveStep; gTarget.z += r.z * moveStep; }
 }
 
 // --------------------- Drawing ---------------------
-
-/**
- * @brief Draws the leg model. Can mirror the model across the YZ plane to create a right leg.
- * @param mirrorX If true, the X coordinates of vertices and normals are flipped.
- */
 void drawLeg(bool mirrorX)
 {
     float mirror = mirrorX ? -1.0f : 1.0f;
@@ -407,17 +542,17 @@ void drawLeg(bool mirrorX)
     for (const auto& t : gTris)
     {
         const Vec3f& n0 = gVertexNormals[t.a];
-        const Vec3f& v0 = gFootVertices[t.a];
+        const Vec3f& v0 = gAllVertices[t.a];
         glNormal3f(n0.x * mirror, n0.y, n0.z);
         glVertex3f(v0.x * mirror, v0.y, v0.z);
 
         const Vec3f& n1 = gVertexNormals[t.b];
-        const Vec3f& v1 = gFootVertices[t.b];
+        const Vec3f& v1 = gAllVertices[t.b];
         glNormal3f(n1.x * mirror, n1.y, n1.z);
         glVertex3f(v1.x * mirror, v1.y, v1.z);
 
         const Vec3f& n2 = gVertexNormals[t.c];
-        const Vec3f& v2 = gFootVertices[t.c];
+        const Vec3f& v2 = gAllVertices[t.c];
         glNormal3f(n2.x * mirror, n2.y, n2.z);
         glVertex3f(v2.x * mirror, v2.y, v2.z);
     }
@@ -432,8 +567,7 @@ void display()
     glEnable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    double aspect = (gHeight > 0) ? (double)gWidth / (double)gHeight : 1.3333;
-    gluPerspective(45.0, aspect, 0.1, 100.0);
+    gluPerspective(45.0, (gHeight > 0) ? (double)gWidth / gHeight : 1.0, 0.1, 100.0);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -441,10 +575,6 @@ void display()
     gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
 
     glPolygonMode(GL_FRONT_AND_BACK, gShowWireframe ? GL_LINE : GL_FILL);
-
-    glDisable(GL_CULL_FACE);
-
-    if (!gShowWireframe) { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1.f, 1.f); }
 
     // Lighting
     glEnable(GL_LIGHTING);
@@ -461,20 +591,17 @@ void display()
 
     // --- Draw Left Leg ---
     glPushMatrix();
-    glTranslatef(0.0f, -4.5f, 0.0f); // Center model vertically
-    glTranslatef(-0.75f, 0.0f, 0.0f); // Position left leg
-    drawLeg(false); // Draw original model
+    glTranslatef(0.0f, -4.5f, 0.0f);
+    glTranslatef(-0.75f, 0.0f, 0.0f);
+    drawLeg(false);
     glPopMatrix();
 
     // --- Draw Right Leg ---
     glPushMatrix();
-    glTranslatef(0.0f, -4.5f, 0.0f); // Center model vertically
-    glTranslatef(0.75f, 0.0f, 0.0f); // Position right leg
-    drawLeg(true);  // Draw mirrored model
+    glTranslatef(0.0f, -4.5f, 0.0f);
+    glTranslatef(0.75f, 0.0f, 0.0f);
+    drawLeg(true);
     glPopMatrix();
 
     glDisable(GL_LIGHTING);
-    if (!gShowWireframe) glDisable(GL_POLYGON_OFFSET_FILL);
-
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }

@@ -45,6 +45,7 @@ float gPitch = 0.1f;
 // --- Input State ---
 bool keyW = false, keyS = false, keyA = false, keyD = false; // For Camera
 bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift = false; // For Character
+bool keyF = false; // For Fist Animation
 
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
@@ -62,6 +63,12 @@ float gMoveSpeed = 0.0f;
 const float WALK_SPEED = 3.0f;
 const float RUN_SPEED = 1.0f;
 const float TURN_SPEED = 120.0f;
+
+// --- Fist Animation State ---
+float gFistAnimationTime = 0.0f;
+bool gFistAnimationActive = false;
+bool gIsFist = false; // Current state: false = open hand, true = fist
+const float FIST_ANIMATION_DURATION = 1.0f;
 
 // =========================================================
 // == 📍 NEW: ANIMATION AMPLITUDE CONTROLS ==
@@ -390,6 +397,140 @@ void initializeCharacterParts() {
     if (g_HandTexture == 0) {
         g_HandTexture = createSkinTexture();
     }
+}
+
+// ===================================================================
+//
+// FIST ANIMATION FUNCTIONS
+//
+// ===================================================================
+
+// Store original hand positions for smooth transitions
+std::vector<HandJoint> g_OriginalHandJoints;
+std::vector<HandJoint> g_OriginalHandJoints2;
+std::vector<HandJoint> g_FistHandJoints;
+std::vector<HandJoint> g_FistHandJoints2;
+
+void initializeFistPositions() {
+    // Store original positions
+    g_OriginalHandJoints = g_HandJoints;
+    g_OriginalHandJoints2 = g_HandJoints2;
+    
+    // Create fist positions for left hand
+    g_FistHandJoints.clear();
+    g_FistHandJoints.resize(21);
+    
+    // WRIST (0) - stays the same
+    g_FistHandJoints[0] = { {0.0f, 0.0f, 0.0f}, -1 };
+
+    // THUMB - curl inward for fist (1-4)
+    g_FistHandJoints[1] = { {0.4f, -0.2f, 0.2f}, 0 };
+    g_FistHandJoints[2] = { {0.5f, -0.3f, 0.4f}, 1 };
+    g_FistHandJoints[3] = { {0.6f, -0.4f, 0.5f}, 2 };
+    g_FistHandJoints[4] = { {0.7f, -0.5f, 0.6f}, 3 };
+
+    // INDEX FINGER - curl into fist (5-8)
+    g_FistHandJoints[5] = { {0.3f, 0.1f, 1.0f}, 0 };
+    g_FistHandJoints[6] = { {0.4f, -0.2f, 1.2f}, 5 };
+    g_FistHandJoints[7] = { {0.5f, -0.4f, 1.0f}, 6 };
+    g_FistHandJoints[8] = { {0.6f, -0.5f, 0.8f}, 7 };
+
+    // MIDDLE FINGER - curl into fist (9-12)
+    g_FistHandJoints[9] = { {0.0f, 0.1f, 1.1f}, 0 };
+    g_FistHandJoints[10] = { {0.1f, -0.2f, 1.3f}, 9 };
+    g_FistHandJoints[11] = { {0.2f, -0.4f, 1.1f}, 10 };
+    g_FistHandJoints[12] = { {0.3f, -0.5f, 0.9f}, 11 };
+
+    // RING FINGER - curl into fist (13-16)
+    g_FistHandJoints[13] = { {-0.3f, 0.1f, 1.0f}, 0 };
+    g_FistHandJoints[14] = { {-0.2f, -0.2f, 1.2f}, 13 };
+    g_FistHandJoints[15] = { {-0.1f, -0.4f, 1.0f}, 14 };
+    g_FistHandJoints[16] = { {0.0f, -0.5f, 0.8f}, 15 };
+
+    // PINKY - curl into fist (17-20)
+    g_FistHandJoints[17] = { {-0.5f, 0.05f, 0.8f}, 0 };
+    g_FistHandJoints[18] = { {-0.4f, -0.2f, 0.9f}, 17 };
+    g_FistHandJoints[19] = { {-0.3f, -0.4f, 0.7f}, 18 };
+    g_FistHandJoints[20] = { {-0.2f, -0.5f, 0.5f}, 19 };
+    
+    // Create fist positions for right hand (mirrored)
+    g_FistHandJoints2.clear();
+    g_FistHandJoints2.resize(21);
+    float flipSign = -1.0f;
+    
+    g_FistHandJoints2[0] = { {0.0f, 0.0f, 0.0f}, -1 };
+    g_FistHandJoints2[1] = { {0.4f * flipSign, -0.2f, 0.2f}, 0 };
+    g_FistHandJoints2[2] = { {0.5f * flipSign, -0.3f, 0.4f}, 1 };
+    g_FistHandJoints2[3] = { {0.6f * flipSign, -0.4f, 0.5f}, 2 };
+    g_FistHandJoints2[4] = { {0.7f * flipSign, -0.5f, 0.6f}, 3 };
+    g_FistHandJoints2[5] = { {0.3f * flipSign, 0.1f, 1.0f}, 0 };
+    g_FistHandJoints2[6] = { {0.4f * flipSign, -0.2f, 1.2f}, 5 };
+    g_FistHandJoints2[7] = { {0.5f * flipSign, -0.4f, 1.0f}, 6 };
+    g_FistHandJoints2[8] = { {0.6f * flipSign, -0.5f, 0.8f}, 7 };
+    g_FistHandJoints2[9] = { {0.0f * flipSign, 0.1f, 1.1f}, 0 };
+    g_FistHandJoints2[10] = { {0.1f * flipSign, -0.2f, 1.3f}, 9 };
+    g_FistHandJoints2[11] = { {0.2f * flipSign, -0.4f, 1.1f}, 10 };
+    g_FistHandJoints2[12] = { {0.3f * flipSign, -0.5f, 0.9f}, 11 };
+    g_FistHandJoints2[13] = { {-0.3f * flipSign, 0.1f, 1.0f}, 0 };
+    g_FistHandJoints2[14] = { {-0.2f * flipSign, -0.2f, 1.2f}, 13 };
+    g_FistHandJoints2[15] = { {-0.1f * flipSign, -0.4f, 1.0f}, 14 };
+    g_FistHandJoints2[16] = { {0.0f * flipSign, -0.5f, 0.8f}, 15 };
+    g_FistHandJoints2[17] = { {-0.5f * flipSign, 0.05f, 0.8f}, 0 };
+    g_FistHandJoints2[18] = { {-0.4f * flipSign, -0.2f, 0.9f}, 17 };
+    g_FistHandJoints2[19] = { {-0.3f * flipSign, -0.4f, 0.7f}, 18 };
+    g_FistHandJoints2[20] = { {-0.2f * flipSign, -0.5f, 0.5f}, 19 };
+}
+
+// Linear interpolation between two Vec3 points
+Vec3 lerp(const Vec3& a, const Vec3& b, float t) {
+    return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t };
+}
+
+// Smooth step function for easing
+float smoothStep(float t) {
+    return t * t * (3.0f - 2.0f * t);
+}
+
+void updateFistAnimation(float deltaTime) {
+    if (!gFistAnimationActive) return;
+    
+    gFistAnimationTime += deltaTime;
+    
+    // Calculate animation progress (0 to 1)
+    float progress = gFistAnimationTime / FIST_ANIMATION_DURATION;
+    
+    if (progress >= 1.0f) {
+        // Animation finished
+        progress = 1.0f;
+        gFistAnimationActive = false;
+        gIsFist = !gIsFist; // Update current state
+    }
+    
+    // Apply smooth easing
+    float easedProgress = smoothStep(progress);
+    
+    // Choose interpolation direction based on current state
+    if (gIsFist) {
+        // Going from open to fist
+        for (int i = 0; i < 21; ++i) {
+            g_HandJoints[i].position = lerp(g_OriginalHandJoints[i].position, g_FistHandJoints[i].position, easedProgress);
+            g_HandJoints2[i].position = lerp(g_OriginalHandJoints2[i].position, g_FistHandJoints2[i].position, easedProgress);
+        }
+    } else {
+        // Going from fist to open
+        for (int i = 0; i < 21; ++i) {
+            g_HandJoints[i].position = lerp(g_FistHandJoints[i].position, g_OriginalHandJoints[i].position, easedProgress);
+            g_HandJoints2[i].position = lerp(g_FistHandJoints2[i].position, g_OriginalHandJoints2[i].position, easedProgress);
+        }
+    }
+}
+
+void toggleFistAnimation() {
+    if (gFistAnimationActive) return; // Don't interrupt ongoing animation
+    
+    gFistAnimationActive = true;
+    gFistAnimationTime = 0.0f;
+    // The animation direction is determined by the current gIsFist state in updateFistAnimation
 }
 
 // =============== ADVANCED HAND & ARM DRAWING FUNCTIONS ===============
@@ -2145,6 +2286,8 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glPushMatrix();
         // Connection to arm wrist - move hand higher to link with arm
         glTranslatef(0.0f, 0.05f, -0.10f);  // Position hand higher to connect with arm end
+        // Rotate left hand 180 degrees around Y-axis to make palm face forward
+        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
         glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.0f); // Full scale for better connection
         if (g_TextureEnabled && g_HandTexture != 0) {
             glEnable(GL_TEXTURE_2D);
@@ -2210,6 +2353,8 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glPushMatrix();
         // Connection to arm wrist - move hand higher to link with arm
         glTranslatef(0.0f, 0.05f, -0.10f);  // Position hand higher to connect with arm end
+        // Rotate right hand 180 degrees around Y-axis to make palm face forward
+        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
         glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.0f); // Full scale for better connection
         if (g_TextureEnabled && g_HandTexture != 0) {
             glEnable(GL_TEXTURE_2D);
@@ -2363,6 +2508,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
 
     glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
     initializeCharacterParts();
+    initializeFistPositions(); // Initialize fist animation data
     QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
 
     MSG msg{};
@@ -2395,6 +2541,9 @@ void updateCharacter(float dt) {
         float phaseSpeed = keyShift ? 10.0f : 5.0f;
         gWalkPhase += gMoveSpeed * dt * phaseSpeed / (keyShift ? 2.5f : 2.0f);
     }
+    
+    // Update fist animation
+    updateFistAnimation(dt);
 }
 
 LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -2410,6 +2559,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; gTarget = { 0.0f,3.5f,0.0f }; gCharacterPos = { 0,0,0 }; gCharacterYaw = 0; }
         else if (wParam == '1') { gShowWireframe = !gShowWireframe; }
         else if (wParam == '2') { g_TextureEnabled = !g_TextureEnabled; } // Toggle hand texture
+        else if (wParam == 'F') { toggleFistAnimation(); } // Toggle fist animation
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;

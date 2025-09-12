@@ -46,13 +46,15 @@ float gPitch = 0.1f;
 bool keyW = false, keyS = false, keyA = false, keyD = false; // For Camera
 bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift = false; // For Character
 bool keyF = false; // For Fist Animation
+bool keyX = false; // For Sword Toggle
+bool keyZ = false; // For Sword Hand Switch
 
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
 // --- Proportions Control ---
 #define LEG_SCALE 0.9f  // Shorter legs for better body-to-leg ratio
 #define BODY_SCALE 3.5f
-#define ARM_SCALE 0.10f
+#define ARM_SCALE 0.14f  // Increased for better coverage and gap elimination
 #define HAND_SCALE 0.15f
 
 // --- Animation & Character State ---
@@ -69,6 +71,46 @@ float gFistAnimationTime = 0.0f;
 bool gFistAnimationActive = false;
 bool gIsFist = false; // Current state: false = open hand, true = fist
 const float FIST_ANIMATION_DURATION = 1.0f;
+
+// --- Kung Fu Pattern State ---
+int gKungFuPattern = 0; // 0 = normal, 1 = crane, 2 = dragon, 3 = tiger
+bool gConcreteHands = false; // Toggle between skin and concrete hands
+
+// --- Kung Fu Animation State ---
+bool gKungFuAnimating = false;
+float gKungFuAnimationTime = 0.0f;
+int gKungFuAnimationPhase = 0;
+const float KUNGFU_ANIMATION_SPEED = 2.0f;
+const float PHASE_DURATION = 1.5f; // Duration of each animation phase
+
+// --- Realistic Hand Form States ---
+enum HandForm {
+    HAND_OPEN = 0,
+    HAND_FIST = 1,
+    HAND_CLAW = 2,        // Tiger claw - fingers curved like claws
+    HAND_SPEAR = 3,       // Snake hand - fingers straight and together
+    HAND_CRANE_BEAK = 4,  // Crane beak - fingertips together
+    HAND_SWORD_FINGER = 5, // Two fingers extended (sword hand)
+    HAND_PALM_STRIKE = 6   // Open palm ready for striking
+};
+
+// --- Anime-style Animation Parameters ---
+struct KungFuPose {
+    float leftShoulderPitch, rightShoulderPitch;
+    float leftShoulderYaw, rightShoulderYaw;
+    float leftShoulderRoll, rightShoulderRoll;
+    float leftArmAngle, rightArmAngle;
+    float torsoYaw, torsoPitch, torsoRoll;
+    HandForm leftHandForm, rightHandForm;  // Add hand forms
+    float leftElbowBend, rightElbowBend;   // Individual elbow control
+    float leftWristPitch, rightWristPitch; // Wrist positioning
+};
+
+// Animation keyframes for each style
+KungFuPose gCraneSequence[4];
+KungFuPose gDragonSequence[4]; 
+KungFuPose gTigerSequence[4];
+KungFuPose gCurrentPose, gTargetPose;
 
 // =========================================================
 // == 📍 NEW: ANIMATION AMPLITUDE CONTROLS ==
@@ -256,6 +298,236 @@ std::vector<ArmJoint> g_ArmJoints2;
 
 // ===================================================================
 //
+// SWORD MODEL INTEGRATION
+//
+// ===================================================================
+
+// --- Sword State Variables ---
+bool gSwordVisible = false;
+bool gSwordInRightHand = true; // true = right hand, false = left hand
+float gSwordScale = 0.3f; // Scale down the sword to fit in hand
+
+// SWORD CONTROLS:
+// Press 'X' to toggle sword visibility
+// Press 'Z' to switch sword between left and right hand
+// When holding sword, the hand automatically forms a fist for proper grip
+
+// --- Sword Material Properties ---
+struct SwordMaterial {
+    GLfloat ambient[4];
+    GLfloat diffuse[4];
+    GLfloat specular[4];
+    GLfloat shininess;
+};
+
+// Define materials for our sword parts
+SwordMaterial polishedSteel = {
+    {0.23f, 0.23f, 0.23f, 1.0f}, {0.77f, 0.77f, 0.77f, 1.0f},
+    {0.99f, 0.99f, 0.99f, 1.0f}, 100.0f
+};
+SwordMaterial darkJade = {
+    {0.0f, 0.1f, 0.05f, 1.0f}, {0.1f, 0.35f, 0.2f, 1.0f},
+    {0.45f, 0.55f, 0.45f, 1.0f}, 32.0f
+};
+SwordMaterial hiltWrap = {
+    {0.08f, 0.05f, 0.05f, 1.0f}, {0.2f, 0.15f, 0.15f, 1.0f},
+    {0.1f, 0.1f, 0.1f, 1.0f}, 10.0f
+};
+
+// Helper function to apply a material
+void setSwordMaterial(const SwordMaterial& mat) {
+    glMaterialfv(GL_FRONT, GL_AMBIENT, mat.ambient);
+    glMaterialfv(GL_FRONT, GL_DIFFUSE, mat.diffuse);
+    glMaterialfv(GL_FRONT, GL_SPECULAR, mat.specular);
+    glMaterialf(GL_FRONT, GL_SHININESS, mat.shininess);
+}
+
+// --- Sword Drawing Functions ---
+void drawSwordSphere(double r, int lats, int longs) { 
+    for (int i = 0; i <= lats; i++) {
+        double lat0 = PI * (-0.5 + (double)(i - 1) / lats);
+        double z0 = r * sin(lat0); double zr0 = r * cos(lat0);
+        double lat1 = PI * (-0.5 + (double)i / lats);
+        double z1 = r * sin(lat1); double zr1 = r * cos(lat1);
+        glBegin(GL_TRIANGLE_STRIP);
+        for (int j = 0; j <= longs; j++) {
+            double lng = 2 * PI * (double)(j - 1) / longs;
+            double x = cos(lng); double y = sin(lng);
+            glNormal3f(x * zr0, y * zr0, z0); glVertex3f(x * zr0, y * zr0, z0);
+            glNormal3f(x * zr1, y * zr1, z1); glVertex3f(x * zr1, y * zr1, z1);
+        }
+        glEnd();
+    }
+}
+
+void drawSwordCylinder(double r, double h, int slices) {
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= slices; i++) {
+        float angle = 2.0f * PI * i / slices;
+        float x = cos(angle); float z = sin(angle);
+        glNormal3f(x, 0.0f, z);
+        glVertex3f(r * x, h, r * z); glVertex3f(r * x, 0.0f, r * z);
+    }
+    glEnd();
+    glBegin(GL_TRIANGLE_FAN);
+    glNormal3f(0.0f, 1.0f, 0.0f); glVertex3f(0.0f, h, 0.0f);
+    for (int i = 0; i <= slices; i++) {
+        float angle = 2.0f * PI * i / slices;
+        glVertex3f(r * cos(angle), h, r * sin(angle));
+    }
+    glEnd();
+    glBegin(GL_TRIANGLE_FAN);
+    glNormal3f(0.0f, -1.0f, 0.0f); glVertex3f(0.0f, 0.0f, 0.0f);
+    for (int i = slices; i >= 0; i--) {
+        float angle = 2.0f * PI * i / slices;
+        glVertex3f(r * cos(angle), 0.0f, r * sin(angle));
+    }
+    glEnd();
+}
+
+void drawSwordInscription() {
+    glDisable(GL_LIGHTING);
+    glColor3f(0.1f, 0.1f, 0.1f); glLineWidth(2.0f);
+    glPushMatrix();
+    glTranslatef(0.0f, 0.5f, 0.051f);
+    glScalef(0.05f, 0.05f, 0.05f);
+    glBegin(GL_LINES); // 忠
+    glVertex2f(-1, -1); glVertex2f(1, -1); glVertex2f(1, -1); glVertex2f(1, 1);
+    glVertex2f(1, 1); glVertex2f(-1, 1); glVertex2f(-1, 1); glVertex2f(-1, -1);
+    glVertex2f(0, -1); glVertex2f(0, 1);
+    glEnd();
+    glTranslatef(0.0f, -3.0f, 0.0f);
+    glBegin(GL_LINES); // 勇
+    glVertex2f(0, 1); glVertex2f(-1, 0.5); glVertex2f(0, 1); glVertex2f(1, 0.5);
+    glVertex2f(-0.5, 0); glVertex2f(0.5, 0); glVertex2f(-1.2, -0.5); glVertex2f(1.2, -0.5);
+    glVertex2f(0, -0.5); glVertex2f(-0.5, -1);
+    glEnd();
+    glTranslatef(0.0f, -3.0f, 0.0f);
+    glBegin(GL_LINES); // 真
+    glVertex2f(0, 1); glVertex2f(0, 0); glVertex2f(-1, 1); glVertex2f(1, 1);
+    glVertex2f(-1, 0); glVertex2f(1, 0); glVertex2f(-0.8, -0.5); glVertex2f(-0.2, -1);
+    glVertex2f(0.8, -0.5); glVertex2f(0.2, -1);
+    glEnd();
+    glPopMatrix();
+    glEnable(GL_LIGHTING);
+}
+
+void drawSwordBlade() {
+    setSwordMaterial(polishedSteel);
+    float bladeLength = 5.0f; float bladeWidth = 0.2f; float bladeThickness = 0.05f;
+    glBegin(GL_QUADS);
+    glNormal3f(0.5f, 0.125f, 0.0f);
+    glVertex3f(0.0f, 0.0f, bladeThickness); glVertex3f(bladeWidth, 0.0f, 0.0f); glVertex3f(bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    glNormal3f(0.5f, -0.125f, 0.0f);
+    glVertex3f(bladeWidth, 0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    glNormal3f(-0.5f, 0.125f, 0.0f);
+    glVertex3f(0.0f, 0.0f, bladeThickness); glVertex3f(-bladeWidth, 0.0f, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    glNormal3f(-0.5f, -0.125f, 0.0f);
+    glVertex3f(-bladeWidth, 0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
+    glEnd();
+    glBegin(GL_TRIANGLES);
+    float tipLength = 0.5f;
+    glNormal3f(0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    glNormal3f(0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    glNormal3f(-0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    glNormal3f(-0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
+    glEnd();
+    drawSwordInscription();
+}
+
+void drawSwordGuard() {
+    setSwordMaterial(darkJade);
+    float guardWidth = 0.6f; float guardHeight = 0.2f; float guardDepth = 0.1f; int segments = 10;
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= segments; ++i) {
+        float angle = (PI / segments) * i;
+        float x = guardWidth * cos(angle); float y = guardHeight * sin(angle) - (guardHeight * 0.5f);
+        glNormal3f(cos(angle), sin(angle), 0.0f);
+        glVertex3f(x, y, guardDepth); glVertex3f(x, y, -guardDepth);
+    }
+    glEnd();
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= segments; ++i) {
+        float angle = (PI / segments) * i;
+        float x = -guardWidth * cos(angle); float y = guardHeight * sin(angle) - (guardHeight * 0.5f);
+        glNormal3f(-cos(angle), sin(angle), 0.0f);
+        glVertex3f(x, y, guardDepth); glVertex3f(x, y, -guardDepth);
+    }
+    glEnd();
+}
+
+void drawSwordHilt() {
+    setSwordMaterial(hiltWrap);
+    drawSwordCylinder(0.1f, 1.2f, 20);
+    glDisable(GL_LIGHTING);
+    glColor3f(0.2f, 0.4f, 0.25f);
+    float wrapRadius = 0.1f * 1.05f; float wrapWidth = 0.02f;
+    glBegin(GL_QUAD_STRIP);
+    for (float i = 0; i < 1.2f; i += 0.05f) {
+        float angle = i * 15.0f;
+        glVertex3f(wrapRadius * cos(angle), i, wrapRadius * sin(angle));
+        glVertex3f((wrapRadius - wrapWidth) * cos(angle), i, (wrapRadius - wrapWidth) * sin(angle));
+    }
+    glEnd();
+    glEnable(GL_LIGHTING);
+}
+
+void drawSwordPommel() {
+    setSwordMaterial(darkJade);
+    glPushMatrix();
+    glScalef(1.0f, 0.7f, 1.0f);
+    drawSwordSphere(0.18f, 30, 30);
+    glPopMatrix();
+}
+
+void drawSwordTassel() {
+    glPushMatrix();
+    glTranslatef(0.0f, -0.05f, 0.0f);
+    setSwordMaterial(darkJade);
+    drawSwordSphere(0.05f, 20, 20);
+    glPopMatrix();
+    glDisable(GL_LIGHTING);
+    glColor3f(0.9f, 0.2f, 0.3f); glLineWidth(2.5f);
+    glBegin(GL_LINES);
+    for (int i = 0; i < 12; ++i) {
+        float angle = 2 * PI * i / 12.0f;
+        glVertex3f(0.0f, -0.1f, 0.0f);
+        glVertex3f(0.2f * cos(angle), -0.8f, 0.2f * sin(angle));
+    }
+    glEnd();
+    glEnable(GL_LIGHTING);
+}
+
+// Main sword drawing function
+void drawSword() {
+    if (!gSwordVisible) return;
+    
+    glPushMatrix();
+    
+    // Scale the sword to fit in hand
+    glScalef(gSwordScale, gSwordScale, gSwordScale);
+    
+    // Position sword components relative to grip point (0,0,0)
+    glTranslatef(0.0, -3.0, 0.0); // Move so grip is at origin
+    
+    // Render sword components
+    drawSwordBlade();
+    drawSwordGuard();
+    glPushMatrix(); 
+    glTranslatef(0.0, -1.2, 0.0); 
+    drawSwordHilt(); 
+    glPopMatrix();
+    glPushMatrix(); 
+    glTranslatef(0.0, -1.3, 0.0); 
+    drawSwordPommel(); 
+    drawSwordTassel(); 
+    glPopMatrix();
+    
+    glPopMatrix();
+}
+
+// ===================================================================
+//
 // SECTION 2: HELPER & SETUP FUNCTIONS
 //
 // ===================================================================
@@ -280,6 +552,14 @@ void drawMulanEyebrows();
 void drawMulanNose();
 void drawMulanMouth();
 void drawMulanHair();
+void initializeFistPositions(); // Add fist animation initialization
+void toggleFistAnimation(); // Add fist animation toggle
+void updateFistAnimation(float deltaTime); // Add fist animation update
+Vec3 lerp(const Vec3& a, const Vec3& b, float t); // Linear interpolation
+float smoothStep(float t); // Smooth easing function
+void initializeKungFuSequences(); // Add kung fu animation initialization
+void updateKungFuAnimation(float deltaTime);
+void startKungFuAnimation(int style);
 
 // --- Math & Model Building ---
 Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
@@ -301,8 +581,8 @@ static void InitializeHand() {
     g_HandJoints.clear();
     g_HandJoints.resize(21);
 
-    // WRIST (0)
-    g_HandJoints[0] = { {0.0f, 0.0f, 0.0f}, -1 };
+    // WRIST (0) - moved backward to better connect with arm
+    g_HandJoints[0] = { {0.0f, 0.0f, -0.2f}, -1 };
 
     // THUMB chain (1-4)
     g_HandJoints[1] = { {0.6f, -0.1f, 0.4f}, 0 };
@@ -340,7 +620,7 @@ static void InitializeHand2() {
     g_HandJoints2.resize(21);
     float flipSign = -1.0f;
 
-    g_HandJoints2[0] = { {0.0f * flipSign, 0.0f, 0.0f}, -1 };
+    g_HandJoints2[0] = { {0.0f * flipSign, 0.0f, -0.2f}, -1 };
     g_HandJoints2[1] = { {0.6f * flipSign, -0.1f, 0.4f}, 0 };
     g_HandJoints2[2] = { {0.9f * flipSign, 0.0f, 0.7f}, 1 };
     g_HandJoints2[3] = { {1.1f * flipSign, 0.1f, 0.9f}, 2 };
@@ -367,11 +647,11 @@ static void InitializeArm() {
     g_ArmJoints.clear();
     g_ArmJoints.resize(6);
     g_ArmJoints[0] = { {0.0f, 0.0f, 0.1f}, -1 };
-    g_ArmJoints[1] = { {0.15f, 0.08f, 2.0f}, 0 };
-    g_ArmJoints[2] = { {0.25f, 0.12f, 4.2f}, 1 };
-    g_ArmJoints[3] = { {0.30f, 0.15f, 6.8f}, 2 };
-    g_ArmJoints[4] = { {0.35f, 0.20f, 9.5f}, 3 };
-    g_ArmJoints[5] = { {0.28f, 0.35f, 12.0f}, 4 };
+    g_ArmJoints[1] = { {0.15f, 0.08f, 1.8f}, 0 };    // Shortened from 2.0f
+    g_ArmJoints[2] = { {0.25f, 0.12f, 3.8f}, 1 };    // Shortened from 4.2f
+    g_ArmJoints[3] = { {0.30f, 0.15f, 6.0f}, 2 };    // Shortened from 6.8f
+    g_ArmJoints[4] = { {0.35f, 0.20f, 8.5f}, 3 };    // Shortened from 9.5f
+    g_ArmJoints[5] = { {0.28f, 0.35f, 10.5f}, 4 };   // Shortened from 12.0f
 }
 
 static void InitializeArm2() {
@@ -379,11 +659,11 @@ static void InitializeArm2() {
     g_ArmJoints2.resize(6);
     float flipSign = -1.0f;
     g_ArmJoints2[0] = { {0.0f * flipSign, 0.0f, 0.1f}, -1 };
-    g_ArmJoints2[1] = { {0.15f * flipSign, 0.08f, 2.0f}, 0 };
-    g_ArmJoints2[2] = { {0.25f * flipSign, 0.12f, 4.2f}, 1 };
-    g_ArmJoints2[3] = { {0.30f * flipSign, 0.15f, 6.8f}, 2 };
-    g_ArmJoints2[4] = { {0.35f * flipSign, 0.20f, 9.5f}, 3 };
-    g_ArmJoints2[5] = { {0.28f * flipSign, 0.35f, 12.0f}, 4 };
+    g_ArmJoints2[1] = { {0.15f * flipSign, 0.08f, 1.8f}, 0 };    // Shortened from 2.0f
+    g_ArmJoints2[2] = { {0.25f * flipSign, 0.12f, 3.8f}, 1 };    // Shortened from 4.2f
+    g_ArmJoints2[3] = { {0.30f * flipSign, 0.15f, 6.0f}, 2 };    // Shortened from 6.8f
+    g_ArmJoints2[4] = { {0.35f * flipSign, 0.20f, 8.5f}, 3 };    // Shortened from 9.5f
+    g_ArmJoints2[5] = { {0.28f * flipSign, 0.35f, 10.5f}, 4 };   // Shortened from 12.0f
 }
 
 void initializeCharacterParts() {
@@ -393,6 +673,8 @@ void initializeCharacterParts() {
     InitializeHand2();
     InitializeArm();
     InitializeArm2();
+    initializeFistPositions(); // Initialize fist poses
+    initializeKungFuSequences(); // Initialize kung fu animation sequences
     g_HandTexture = loadTexture("skin.bmp");
     if (g_HandTexture == 0) {
         g_HandTexture = createSkinTexture();
@@ -503,21 +785,21 @@ void updateFistAnimation(float deltaTime) {
         // Animation finished
         progress = 1.0f;
         gFistAnimationActive = false;
-        gIsFist = !gIsFist; // Update current state
+        gIsFist = !gIsFist; // Toggle to the target state
     }
     
     // Apply smooth easing
     float easedProgress = smoothStep(progress);
     
-    // Choose interpolation direction based on current state
-    if (gIsFist) {
-        // Going from open to fist
+    // Choose interpolation direction based on target state (inverse of current)
+    if (!gIsFist) {
+        // Currently open, going to fist
         for (int i = 0; i < 21; ++i) {
             g_HandJoints[i].position = lerp(g_OriginalHandJoints[i].position, g_FistHandJoints[i].position, easedProgress);
             g_HandJoints2[i].position = lerp(g_OriginalHandJoints2[i].position, g_FistHandJoints2[i].position, easedProgress);
         }
     } else {
-        // Going from fist to open
+        // Currently fist, going to open
         for (int i = 0; i < 21; ++i) {
             g_HandJoints[i].position = lerp(g_FistHandJoints[i].position, g_OriginalHandJoints[i].position, easedProgress);
             g_HandJoints2[i].position = lerp(g_FistHandJoints2[i].position, g_OriginalHandJoints2[i].position, easedProgress);
@@ -842,9 +1124,9 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
         glColor3f(0.85f, 0.64f, 0.52f); // Skin color for non-textured mode
     }
 
-    // Draw arm segments scaled to match palm size
-    Vec3 shoulderSocket = { 0.0f, 0.0f, 0.0f };  // Start from shoulder socket
-    Vec3 wristConnect = { 0.0f, 0.0f, 0.05f };  // Connection to hand
+    // Draw arm segments scaled to match palm size with extended wrist connection
+    Vec3 shoulderSocket = { 0.0f, 0.0f, 0.0f };  // Start from shoulder socket  
+    Vec3 wristConnect = { 0.0f, 0.0f, 0.12f };  // Extended connection to hand (longer reach)
 
     // Add shoulder connector piece
     drawAnatomicalArmSegment(shoulderSocket, { 0.0f, -0.1f, 0.0f }, 1.2f, 1.0f, 1.0f, 0.8f);
@@ -854,6 +1136,10 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
     drawAnatomicalArmSegment(armJoints[2].position, armJoints[3].position, 1.1f, 0.9f, 0.9f, 0.65f);
     drawAnatomicalArmSegment(armJoints[3].position, armJoints[4].position, 1.05f, 0.85f, 0.85f, 0.7f);
     drawAnatomicalArmSegment(armJoints[4].position, armJoints[5].position, 1.3f, 1.0f, 1.1f, 0.8f);
+    
+    // Add wrist extension segment to bridge gap to hand
+    Vec3 wristExtend = { 0.0f, 0.02f, 0.18f };  // Final bridge to hand
+    drawAnatomicalArmSegment(armJoints[5].position, wristExtend, 1.1f, 0.8f, 0.8f, 0.6f);
 
     // Draw joints
     for (size_t i = 1; i < armJoints.size(); ++i) {
@@ -877,16 +1163,16 @@ static void drawSkinnedPalm(const std::vector<HandJoint>& joints) {
     const int GRID_HEIGHT = 7;  // More layers for smooth transitions
     Vec3 palmGrid[GRID_HEIGHT][GRID_WIDTH];
 
-    // Layer 0: Wrist base (extended coverage)
-    palmGrid[0][0] = { wrist.x - 0.6f, wrist.y - 0.02f, wrist.z - 0.15f };   // Far pinky edge
-    palmGrid[0][1] = { wrist.x - 0.42f, wrist.y - 0.01f, wrist.z - 0.13f };  // Pinky-ring gap
-    palmGrid[0][2] = { wrist.x - 0.26f, wrist.y + 0.0f, wrist.z - 0.11f };   // Ring area
-    palmGrid[0][3] = { wrist.x - 0.12f, wrist.y + 0.01f, wrist.z - 0.1f };   // Left-center
-    palmGrid[0][4] = { wrist.x + 0.0f, wrist.y + 0.02f, wrist.z - 0.09f };   // True center
-    palmGrid[0][5] = { wrist.x + 0.12f, wrist.y + 0.01f, wrist.z - 0.1f };   // Right-center
-    palmGrid[0][6] = { wrist.x + 0.26f, wrist.y + 0.0f, wrist.z - 0.11f };   // Index area
-    palmGrid[0][7] = { wrist.x + 0.42f, wrist.y - 0.01f, wrist.z - 0.13f };  // Index-thumb gap
-    palmGrid[0][8] = { wrist.x + 0.6f, wrist.y - 0.02f, wrist.z - 0.15f };   // Far thumb edge
+    // Layer 0: Extended wrist base (reaching back toward arm) 
+    palmGrid[0][0] = { wrist.x - 0.6f, wrist.y - 0.02f, wrist.z - 0.25f };   // Extended backward
+    palmGrid[0][1] = { wrist.x - 0.42f, wrist.y - 0.01f, wrist.z - 0.23f };  // Extended backward
+    palmGrid[0][2] = { wrist.x - 0.26f, wrist.y + 0.0f, wrist.z - 0.21f };   // Extended backward
+    palmGrid[0][3] = { wrist.x - 0.12f, wrist.y + 0.01f, wrist.z - 0.20f };  // Extended backward
+    palmGrid[0][4] = { wrist.x + 0.0f, wrist.y + 0.02f, wrist.z - 0.19f };   // Extended backward
+    palmGrid[0][5] = { wrist.x + 0.12f, wrist.y + 0.01f, wrist.z - 0.20f };  // Extended backward
+    palmGrid[0][6] = { wrist.x + 0.26f, wrist.y + 0.0f, wrist.z - 0.21f };   // Extended backward
+    palmGrid[0][7] = { wrist.x + 0.42f, wrist.y - 0.01f, wrist.z - 0.23f };  // Extended backward
+    palmGrid[0][8] = { wrist.x + 0.6f, wrist.y - 0.02f, wrist.z - 0.25f };   // Extended backward
 
     // Layer 1: Lower palm transition
     palmGrid[1][0] = { wrist.x - 0.52f, wrist.y + 0.08f, wrist.z + 0.05f };
@@ -1299,6 +1585,415 @@ static void drawLowPolyThumb(const std::vector<HandJoint>& joints) {
     drawLowPolyFingerSegment(joints[2].position, joints[3].position, 0.17f);
     drawLowPolyFingerSegment(joints[3].position, joints[4].position, 0.14f);
     drawFingertip(joints[4].position, 0.14f);
+}
+
+// =============== CONCRETE HAND & ARM FUNCTIONS ===============
+
+static void drawConcreteFingerSegment(const Vec3& start, const Vec3& end, float radius) {
+    Vec3 dir = { end.x - start.x, end.y - start.y, end.z - start.z };
+    float length = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+
+    if (length < 0.001f) return;
+
+    dir.x /= length; dir.y /= length; dir.z /= length;
+
+    glPushMatrix();
+    glTranslatef(start.x, start.y, start.z);
+
+    float pitch = asinf(-dir.y) * 180.0f / PI;
+    float yaw = atan2f(dir.x, dir.z) * 180.0f / PI;
+    glRotatef(yaw, 0, 1, 0);
+    glRotatef(pitch, 1, 0, 0);
+
+    // Concrete texture appearance - more angular/blocky
+    glColor3f(0.6f, 0.6f, 0.65f); // Gray concrete color
+    
+    // Draw as angular cylinder with concrete-like surface
+    const int sides = 6; // Hexagonal for more concrete-like appearance
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < sides; i++) {
+        float angle1 = (float)i * 2.0f * PI / sides;
+        float angle2 = (float)(i + 1) * 2.0f * PI / sides;
+        
+        float x1 = radius * cosf(angle1);
+        float y1 = radius * sinf(angle1);
+        float x2 = radius * cosf(angle2);
+        float y2 = radius * sinf(angle2);
+        
+        // Side faces with rough normals
+        Vec3f n = normalize({ (x1 + x2) * 0.5f, (y1 + y2) * 0.5f, 0.0f });
+        glNormal3f(n.x, n.y, n.z);
+        glVertex3f(x1, y1, 0.0f);
+        glVertex3f(x2, y2, 0.0f);
+        glVertex3f(x2, y2, length);
+        
+        glVertex3f(x1, y1, 0.0f);
+        glVertex3f(x2, y2, length);
+        glVertex3f(x1, y1, length);
+    }
+    glEnd();
+
+    // Add concrete-like texture details
+    glColor3f(0.5f, 0.5f, 0.55f); // Slightly darker for texture
+    glBegin(GL_LINES);
+    for (int i = 0; i < sides; i++) {
+        float angle = (float)i * 2.0f * PI / sides;
+        float x = radius * cosf(angle);
+        float y = radius * sinf(angle);
+        glVertex3f(x, y, 0.0f);
+        glVertex3f(x, y, length);
+    }
+    glEnd();
+
+    glPopMatrix();
+}
+
+static void drawConcretePalm(const std::vector<HandJoint>& joints) {
+    glColor3f(0.6f, 0.6f, 0.65f); // Concrete gray
+    
+    Vec3 wrist = joints[0].position;
+    Vec3 indexBase = joints[5].position;
+    Vec3 middleBase = joints[9].position;
+    Vec3 ringBase = joints[13].position;
+    Vec3 pinkyBase = joints[17].position;
+    Vec3 thumbBase = joints[1].position;
+
+    // Draw palm as concrete block
+    glBegin(GL_TRIANGLES);
+    
+    // Palm surface - more angular/geometric
+    Vec3 palmCenter = { (indexBase.x + pinkyBase.x) * 0.5f, 
+                       (indexBase.y + pinkyBase.y) * 0.5f + 0.1f, 
+                       (indexBase.z + pinkyBase.z) * 0.5f };
+    
+    // Create blocky palm geometry
+    Vec3 corners[8] = {
+        { wrist.x - 0.6f, wrist.y - 0.1f, wrist.z - 0.2f },
+        { wrist.x + 0.6f, wrist.y - 0.1f, wrist.z - 0.2f },
+        { palmCenter.x + 0.6f, palmCenter.y, palmCenter.z },
+        { palmCenter.x - 0.6f, palmCenter.y, palmCenter.z },
+        { wrist.x - 0.6f, wrist.y + 0.3f, wrist.z - 0.2f },
+        { wrist.x + 0.6f, wrist.y + 0.3f, wrist.z - 0.2f },
+        { palmCenter.x + 0.6f, palmCenter.y + 0.3f, palmCenter.z },
+        { palmCenter.x - 0.6f, palmCenter.y + 0.3f, palmCenter.z }
+    };
+    
+    // Draw cube faces
+    int faces[12][3] = {
+        {0,1,2}, {0,2,3}, // bottom
+        {4,6,5}, {4,7,6}, // top  
+        {0,4,1}, {1,4,5}, // front
+        {2,6,3}, {3,6,7}, // back
+        {0,3,4}, {3,7,4}, // left
+        {1,5,2}, {2,5,6}  // right
+    };
+    
+    for (int i = 0; i < 12; i++) {
+        Vec3 v1 = corners[faces[i][0]];
+        Vec3 v2 = corners[faces[i][1]];
+        Vec3 v3 = corners[faces[i][2]];
+        
+        // Calculate normal using Vec3f functions
+        Vec3f v1f = { v1.x, v1.y, v1.z };
+        Vec3f v2f = { v2.x, v2.y, v2.z };
+        Vec3f v3f = { v3.x, v3.y, v3.z };
+        Vec3f normal = normalize(cross(sub(v2f, v1f), sub(v3f, v1f)));
+        glNormal3f(normal.x, normal.y, normal.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+        glVertex3f(v3.x, v3.y, v3.z);
+    }
+    glEnd();
+}
+
+static void drawConcreteThumb(const std::vector<HandJoint>& joints) {
+    drawConcreteFingerSegment(joints[1].position, joints[2].position, 0.22f);
+    drawConcreteFingerSegment(joints[2].position, joints[3].position, 0.19f);
+    drawConcreteFingerSegment(joints[3].position, joints[4].position, 0.16f);
+}
+
+static void drawConcreteFinger(const std::vector<HandJoint>& joints, int mcpIdx, int pipIdx, int dipIdx, int tipIdx) {
+    if (mcpIdx < joints.size() && pipIdx < joints.size() && dipIdx < joints.size() && tipIdx < joints.size()) {
+        drawConcreteFingerSegment(joints[mcpIdx].position, joints[pipIdx].position, 0.20f);
+        drawConcreteFingerSegment(joints[pipIdx].position, joints[dipIdx].position, 0.17f);
+        drawConcreteFingerSegment(joints[dipIdx].position, joints[tipIdx].position, 0.14f);
+    }
+}
+
+// =============== REALISTIC KUNG FU HAND FORMS ===============
+
+void setHandForm(std::vector<HandJoint>& joints, HandForm form) {
+    switch (form) {
+        case HAND_CLAW: { // Tiger Claw - fingers curved like attacking claws
+            // Thumb - curved inward
+            joints[1].position = { 0.4f, -0.1f, 0.3f };
+            joints[2].position = { 0.7f, -0.2f, 0.5f };
+            joints[3].position = { 0.9f, -0.3f, 0.6f };
+            joints[4].position = { 1.0f, -0.4f, 0.7f };
+            
+            // Index finger - strongly curved claw
+            joints[5].position = { 0.3f, 0.1f, 1.0f };
+            joints[6].position = { 0.4f, -0.1f, 1.5f };
+            joints[7].position = { 0.5f, -0.4f, 1.8f };
+            joints[8].position = { 0.6f, -0.6f, 1.9f };
+            
+            // Middle finger - curved claw
+            joints[9].position = { 0.0f, 0.1f, 1.1f };
+            joints[10].position = { 0.1f, -0.1f, 1.6f };
+            joints[11].position = { 0.2f, -0.4f, 1.9f };
+            joints[12].position = { 0.3f, -0.6f, 2.0f };
+            
+            // Ring finger - curved claw
+            joints[13].position = { -0.3f, 0.1f, 1.0f };
+            joints[14].position = { -0.2f, -0.1f, 1.5f };
+            joints[15].position = { -0.1f, -0.4f, 1.8f };
+            joints[16].position = { 0.0f, -0.6f, 1.9f };
+            
+            // Pinky - small claw
+            joints[17].position = { -0.5f, 0.05f, 0.8f };
+            joints[18].position = { -0.4f, -0.1f, 1.2f };
+            joints[19].position = { -0.3f, -0.3f, 1.4f };
+            joints[20].position = { -0.2f, -0.5f, 1.5f };
+            break;
+        }
+            
+        case HAND_SPEAR: { // Snake Hand - fingers straight and together
+            // Thumb - tucked along palm
+            joints[1].position = { 0.3f, -0.2f, 0.2f };
+            joints[2].position = { 0.4f, -0.3f, 0.4f };
+            joints[3].position = { 0.5f, -0.4f, 0.5f };
+            joints[4].position = { 0.6f, -0.5f, 0.6f };
+            
+            // All fingers straight and close together
+            joints[5].position = { 0.1f, 0.1f, 1.0f };
+            joints[6].position = { 0.1f, 0.0f, 1.7f };
+            joints[7].position = { 0.1f, 0.0f, 2.2f };
+            joints[8].position = { 0.1f, 0.0f, 2.6f };
+            
+            joints[9].position = { 0.0f, 0.1f, 1.1f };
+            joints[10].position = { 0.0f, 0.0f, 1.8f };
+            joints[11].position = { 0.0f, 0.0f, 2.3f };
+            joints[12].position = { 0.0f, 0.0f, 2.7f };
+            
+            joints[13].position = { -0.1f, 0.1f, 1.0f };
+            joints[14].position = { -0.1f, 0.0f, 1.7f };
+            joints[15].position = { -0.1f, 0.0f, 2.2f };
+            joints[16].position = { -0.1f, 0.0f, 2.6f };
+            
+            joints[17].position = { -0.2f, 0.05f, 0.9f };
+            joints[18].position = { -0.2f, 0.0f, 1.5f };
+            joints[19].position = { -0.2f, 0.0f, 1.9f };
+            joints[20].position = { -0.2f, 0.0f, 2.2f };
+            break;
+        }
+            
+        case HAND_CRANE_BEAK: { // Crane Beak - fingertips together
+            // All fingertips meet at a point
+            Vec3 beakTip = { 0.0f, 0.1f, 2.3f };
+            
+            joints[1].position = { 0.3f, -0.1f, 0.4f };
+            joints[2].position = { 0.4f, 0.0f, 1.2f };
+            joints[3].position = { 0.2f, 0.05f, 1.8f };
+            joints[4].position = beakTip;
+            
+            joints[5].position = { 0.2f, 0.1f, 1.0f };
+            joints[6].position = { 0.2f, 0.05f, 1.6f };
+            joints[7].position = { 0.1f, 0.08f, 2.0f };
+            joints[8].position = beakTip;
+            
+            joints[9].position = { 0.0f, 0.1f, 1.1f };
+            joints[10].position = { 0.0f, 0.05f, 1.7f };
+            joints[11].position = { 0.0f, 0.1f, 2.1f };
+            joints[12].position = beakTip;
+            
+            joints[13].position = { -0.2f, 0.1f, 1.0f };
+            joints[14].position = { -0.2f, 0.05f, 1.6f };
+            joints[15].position = { -0.1f, 0.08f, 2.0f };
+            joints[16].position = beakTip;
+            
+            joints[17].position = { -0.3f, 0.05f, 0.9f };
+            joints[18].position = { -0.3f, 0.0f, 1.4f };
+            joints[19].position = { -0.2f, 0.05f, 1.8f };
+            joints[20].position = beakTip;
+            break;
+        }
+            
+        case HAND_SWORD_FINGER: { // Two fingers extended (sword hand)
+            // Thumb - folded down
+            joints[1].position = { 0.4f, -0.2f, 0.2f };
+            joints[2].position = { 0.5f, -0.4f, 0.3f };
+            joints[3].position = { 0.6f, -0.5f, 0.4f };
+            joints[4].position = { 0.7f, -0.6f, 0.5f };
+            
+            // Index and middle fingers extended (sword fingers)
+            joints[5].position = { 0.2f, 0.1f, 1.0f };
+            joints[6].position = { 0.2f, 0.0f, 1.7f };
+            joints[7].position = { 0.2f, 0.0f, 2.2f };
+            joints[8].position = { 0.2f, 0.0f, 2.6f };
+            
+            joints[9].position = { -0.2f, 0.1f, 1.1f };
+            joints[10].position = { -0.2f, 0.0f, 1.8f };
+            joints[11].position = { -0.2f, 0.0f, 2.3f };
+            joints[12].position = { -0.2f, 0.0f, 2.7f };
+            
+            // Ring and pinky folded
+            joints[13].position = { -0.4f, 0.1f, 1.0f };
+            joints[14].position = { -0.4f, -0.3f, 1.2f };
+            joints[15].position = { -0.3f, -0.5f, 1.0f };
+            joints[16].position = { -0.2f, -0.6f, 0.8f };
+            
+            joints[17].position = { -0.6f, 0.05f, 0.8f };
+            joints[18].position = { -0.5f, -0.3f, 0.9f };
+            joints[19].position = { -0.4f, -0.5f, 0.7f };
+            joints[20].position = { -0.3f, -0.6f, 0.5f };
+            break;
+        }
+            
+        case HAND_PALM_STRIKE: { // Open palm ready for striking
+            // Thumb extended and strong
+            joints[1].position = { 0.6f, -0.1f, 0.4f };
+            joints[2].position = { 0.9f, 0.0f, 0.7f };
+            joints[3].position = { 1.1f, 0.1f, 0.9f };
+            joints[4].position = { 1.2f, 0.2f, 1.1f };
+            
+            // All fingers extended and spread for maximum surface area
+            joints[5].position = { 0.4f, 0.1f, 1.0f };
+            joints[6].position = { 0.4f, 0.0f, 1.8f };
+            joints[7].position = { 0.4f, 0.0f, 2.3f };
+            joints[8].position = { 0.4f, 0.0f, 2.7f };
+            
+            joints[9].position = { 0.0f, 0.1f, 1.1f };
+            joints[10].position = { 0.0f, 0.0f, 1.9f };
+            joints[11].position = { 0.0f, 0.0f, 2.4f };
+            joints[12].position = { 0.0f, 0.0f, 2.8f };
+            
+            joints[13].position = { -0.4f, 0.1f, 1.0f };
+            joints[14].position = { -0.4f, 0.0f, 1.8f };
+            joints[15].position = { -0.4f, 0.0f, 2.3f };
+            joints[16].position = { -0.4f, 0.0f, 2.7f };
+            
+            joints[17].position = { -0.6f, 0.05f, 0.8f };
+            joints[18].position = { -0.6f, 0.0f, 1.5f };
+            joints[19].position = { -0.6f, 0.0f, 1.9f };
+            joints[20].position = { -0.6f, 0.0f, 2.2f };
+            break;
+        }
+        
+        default:
+            // Keep original hand positions for HAND_OPEN and HAND_FIST
+            break;
+    }
+}
+
+void initializeKungFuSequences() {
+    // Crane Style Sequence - Graceful, flowing like a crane with precise hand forms
+    gCraneSequence[0] = { 45.0f, 90.0f, -30.0f, 0.0f, -20.0f, 20.0f, -30.0f, 0.0f, 0.0f, 0.0f, 0.0f, 
+                         HAND_CRANE_BEAK, HAND_PALM_STRIKE, 15.0f, 20.0f, -10.0f, 5.0f }; // Preparatory stance
+    gCraneSequence[1] = { 120.0f, 45.0f, -60.0f, 30.0f, -40.0f, -10.0f, -60.0f, -30.0f, -15.0f, 10.0f, 5.0f,
+                         HAND_CRANE_BEAK, HAND_CRANE_BEAK, 5.0f, 10.0f, -20.0f, -15.0f }; // Wing spread high
+    gCraneSequence[2] = { 60.0f, 135.0f, -45.0f, 60.0f, -60.0f, 40.0f, -45.0f, -90.0f, 15.0f, -5.0f, -10.0f,
+                         HAND_SPEAR, HAND_CRANE_BEAK, 30.0f, 5.0f, 10.0f, -25.0f }; // Swooping strike
+    gCraneSequence[3] = { 90.0f, 75.0f, -20.0f, 15.0f, -30.0f, 25.0f, 0.0f, -15.0f, 0.0f, 0.0f, 0.0f,
+                         HAND_PALM_STRIKE, HAND_CRANE_BEAK, 20.0f, 15.0f, 0.0f, 0.0f }; // Return to center
+
+    // Dragon Style Sequence - Powerful, serpentine movements with flowing hands
+    gDragonSequence[0] = { 75.0f, 75.0f, -20.0f, 20.0f, -30.0f, 30.0f, -20.0f, -20.0f, 0.0f, 0.0f, 0.0f,
+                          HAND_CLAW, HAND_CLAW, 25.0f, 25.0f, 5.0f, 5.0f }; // Coiling stance
+    gDragonSequence[1] = { 45.0f, 150.0f, -60.0f, 80.0f, -80.0f, 60.0f, -45.0f, -90.0f, -30.0f, 15.0f, 20.0f,
+                          HAND_CLAW, HAND_SPEAR, 10.0f, 5.0f, 15.0f, -20.0f }; // Rising dragon
+    gDragonSequence[2] = { 135.0f, 30.0f, 45.0f, -30.0f, 70.0f, -70.0f, -75.0f, -15.0f, 30.0f, -10.0f, -15.0f,
+                          HAND_SPEAR, HAND_CLAW, 40.0f, 35.0f, 20.0f, 10.0f }; // Sweeping claw
+    gDragonSequence[3] = { 90.0f, 120.0f, 0.0f, 45.0f, -45.0f, 60.0f, -45.0f, -60.0f, 0.0f, 5.0f, 0.0f,
+                          HAND_PALM_STRIKE, HAND_CLAW, 20.0f, 15.0f, 0.0f, 5.0f }; // Flowing transition
+
+    // Tiger Style Sequence - Aggressive, explosive movements with powerful claws
+    gTigerSequence[0] = { 90.0f, 90.0f, -40.0f, 40.0f, -50.0f, 50.0f, -30.0f, -30.0f, 0.0f, 0.0f, 0.0f,
+                         HAND_CLAW, HAND_CLAW, 30.0f, 30.0f, 10.0f, 10.0f }; // Stalking stance
+    gTigerSequence[1] = { 135.0f, 60.0f, -80.0f, -20.0f, -90.0f, 20.0f, -75.0f, -15.0f, -20.0f, 20.0f, 15.0f,
+                         HAND_CLAW, HAND_FIST, 5.0f, 40.0f, 25.0f, -10.0f }; // Pounce preparation  
+    gTigerSequence[2] = { 60.0f, 150.0f, -30.0f, 70.0f, -40.0f, 80.0f, -15.0f, -90.0f, 25.0f, -15.0f, -20.0f,
+                         HAND_CLAW, HAND_CLAW, 45.0f, 10.0f, 30.0f, 15.0f }; // Striking claw
+    gTigerSequence[3] = { 120.0f, 45.0f, -60.0f, 0.0f, -75.0f, 30.0f, -60.0f, 0.0f, -10.0f, 10.0f, 5.0f,
+                         HAND_PALM_STRIKE, HAND_CLAW, 25.0f, 35.0f, 15.0f, 5.0f }; // Recovery stance
+}
+
+// Smooth interpolation between poses
+KungFuPose lerpPose(const KungFuPose& from, const KungFuPose& to, float t) {
+    // Apply easing function for smoother animation
+    float easedT = t * t * (3.0f - 2.0f * t); // Smooth step
+    
+    KungFuPose result;
+    result.leftShoulderPitch = from.leftShoulderPitch + (to.leftShoulderPitch - from.leftShoulderPitch) * easedT;
+    result.rightShoulderPitch = from.rightShoulderPitch + (to.rightShoulderPitch - from.rightShoulderPitch) * easedT;
+    result.leftShoulderYaw = from.leftShoulderYaw + (to.leftShoulderYaw - from.leftShoulderYaw) * easedT;
+    result.rightShoulderYaw = from.rightShoulderYaw + (to.rightShoulderYaw - from.rightShoulderYaw) * easedT;
+    result.leftShoulderRoll = from.leftShoulderRoll + (to.leftShoulderRoll - from.leftShoulderRoll) * easedT;
+    result.rightShoulderRoll = from.rightShoulderRoll + (to.rightShoulderRoll - from.rightShoulderRoll) * easedT;
+    result.leftArmAngle = from.leftArmAngle + (to.leftArmAngle - from.leftArmAngle) * easedT;
+    result.rightArmAngle = from.rightArmAngle + (to.rightArmAngle - from.rightArmAngle) * easedT;
+    result.torsoYaw = from.torsoYaw + (to.torsoYaw - from.torsoYaw) * easedT;
+    result.torsoPitch = from.torsoPitch + (to.torsoPitch - from.torsoPitch) * easedT;
+    result.torsoRoll = from.torsoRoll + (to.torsoRoll - from.torsoRoll) * easedT;
+    result.leftElbowBend = from.leftElbowBend + (to.leftElbowBend - from.leftElbowBend) * easedT;
+    result.rightElbowBend = from.rightElbowBend + (to.rightElbowBend - from.rightElbowBend) * easedT;
+    result.leftWristPitch = from.leftWristPitch + (to.leftWristPitch - from.leftWristPitch) * easedT;
+    result.rightWristPitch = from.rightWristPitch + (to.rightWristPitch - from.rightWristPitch) * easedT;
+    
+    // For hand forms, switch at halfway point for crisp transitions
+    result.leftHandForm = (easedT < 0.5f) ? from.leftHandForm : to.leftHandForm;
+    result.rightHandForm = (easedT < 0.5f) ? from.rightHandForm : to.rightHandForm;
+    
+    return result;
+}
+
+void updateKungFuAnimation(float deltaTime) {
+    if (!gKungFuAnimating) return;
+    
+    gKungFuAnimationTime += deltaTime * KUNGFU_ANIMATION_SPEED;
+    
+    // Calculate which phase we're in and progress within that phase
+    float totalPhaseTime = gKungFuAnimationTime;
+    int currentPhase = (int)(totalPhaseTime / PHASE_DURATION) % 4;
+    float phaseProgress = fmodf(totalPhaseTime, PHASE_DURATION) / PHASE_DURATION;
+    
+    // Get the current sequence based on style
+    KungFuPose* sequence;
+    switch (gKungFuPattern) {
+        case 1: sequence = gCraneSequence; break;
+        case 2: sequence = gDragonSequence; break;  
+        case 3: sequence = gTigerSequence; break;
+        default: 
+            gKungFuAnimating = false;
+            return;
+    }
+    
+    // Interpolate between current and next keyframe
+    KungFuPose fromPose = sequence[currentPhase];
+    KungFuPose toPose = sequence[(currentPhase + 1) % 4];
+    
+    gCurrentPose = lerpPose(fromPose, toPose, phaseProgress);
+    
+    // Update global pose for torso
+    g_pose.torsoYaw = gCurrentPose.torsoYaw;
+    g_pose.torsoPitch = gCurrentPose.torsoPitch;  
+    g_pose.torsoRoll = gCurrentPose.torsoRoll;
+}
+
+void startKungFuAnimation(int style) {
+    if (style == 0) {
+        gKungFuAnimating = false;
+        gKungFuPattern = 0;
+        // Reset to neutral pose
+        g_pose.torsoYaw = 0.0f;
+        g_pose.torsoPitch = 0.0f;
+        g_pose.torsoRoll = 0.0f;
+        return;
+    }
+    
+    gKungFuPattern = style;
+    gKungFuAnimating = true;
+    gKungFuAnimationTime = 0.0f;
+    gKungFuAnimationPhase = 0;
 }
 
 // leg
@@ -1923,8 +2618,8 @@ void drawMulanHead() {
     glPushMatrix();
     
     // Position head to sit directly on top of neck sphere at Y19 level
-    // Head bottom should touch neck top, overlapping slightly for seamless connection
-    glTranslatef(0.0f, Y19 + HEAD_RADIUS * 0.7f, 0.0f);
+    // Head bottom should overlap with neck top for seamless connection
+    glTranslatef(0.0f, Y19 + HEAD_RADIUS * 0.6f, 0.0f); // Reduced offset for better overlap
     
     // Mulan's skin tone (East Asian complexion)
     glColor3f(0.92f, 0.76f, 0.65f);
@@ -2215,34 +2910,102 @@ void drawShoulderSocketsOLD() {
 }
 // --- Arm and Hand Drawing ---
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
-    // Default arm pose - arms extended outward from sides
-    float leftShoulderPitch = 90.0f + leftArmAngle;
-    float rightShoulderPitch = 90.0f + rightArmAngle;
-    float leftShoulderYaw = -20.0f;   // Left arm rotated to the left
-    float rightShoulderYaw = 20.0f;   // Right arm rotated to the right
-    float leftShoulderRoll = -40.0f;  // Roll left arm outward more
-    float rightShoulderRoll = 40.0f;  // Roll right arm outward more
-    float defaultElbowBend = 20.0f;
-    float defaultWristPitch = 0.0f;
-    float defaultWristYaw = 0.0f;
-    float defaultWristRoll = 0.0f;
-
-    // Enable texturing if available
-    if (g_TextureEnabled && g_HandTexture != 0) {
-        glEnable(GL_TEXTURE_2D);
-        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
-        glColor3f(1.0f, 1.0f, 1.0f); // White to show texture clearly
+    // Use animated kung fu poses if animation is active
+    float leftShoulderPitch, rightShoulderPitch;
+    float leftShoulderYaw, rightShoulderYaw; 
+    float leftShoulderRoll, rightShoulderRoll;
+    float leftElbowBend = 20.0f, rightElbowBend = 20.0f;
+    float leftWristPitch = 0.0f, rightWristPitch = 0.0f;
+    float leftWristYaw = 0.0f, rightWristYaw = 0.0f;
+    float leftWristRoll = 0.0f, rightWristRoll = 0.0f;
+    
+    if (gKungFuAnimating) {
+        // Use animated pose values
+        leftShoulderPitch = gCurrentPose.leftShoulderPitch;
+        rightShoulderPitch = gCurrentPose.rightShoulderPitch;
+        leftShoulderYaw = gCurrentPose.leftShoulderYaw;
+        rightShoulderYaw = gCurrentPose.rightShoulderYaw;
+        leftShoulderRoll = gCurrentPose.leftShoulderRoll;
+        rightShoulderRoll = gCurrentPose.rightShoulderRoll;
+        leftArmAngle += gCurrentPose.leftArmAngle;
+        rightArmAngle += gCurrentPose.rightArmAngle;
+        leftElbowBend = gCurrentPose.leftElbowBend;
+        rightElbowBend = gCurrentPose.rightElbowBend;
+        leftWristPitch = gCurrentPose.leftWristPitch;
+        rightWristPitch = gCurrentPose.rightWristPitch;
+        
+        // Apply realistic hand forms during animation while preserving wrist connection
+        Vec3 leftWristBackup = g_HandJoints[0].position;
+        Vec3 rightWristBackup = g_HandJoints2[0].position;
+        
+        setHandForm(g_HandJoints, gCurrentPose.leftHandForm);
+        setHandForm(g_HandJoints2, gCurrentPose.rightHandForm);
+        
+        // Restore wrist positions to maintain arm connection
+        g_HandJoints[0].position = leftWristBackup;
+        g_HandJoints2[0].position = rightWristBackup;
+    } else {
+        // Use default poses and restore original hand positions
+        leftShoulderPitch = 90.0f + leftArmAngle;
+        rightShoulderPitch = 90.0f + rightArmAngle;
+        leftShoulderYaw = -20.0f;
+        rightShoulderYaw = 20.0f;
+        leftShoulderRoll = -40.0f;
+        rightShoulderRoll = 40.0f;
+        
+        // Lift arm higher when holding sword
+        if (gSwordVisible && !gSwordInRightHand) {
+            leftShoulderPitch += 30.0f; // Lift left arm 30 degrees higher
+        }
+        if (gSwordVisible && gSwordInRightHand) {
+            rightShoulderPitch += 30.0f; // Lift right arm 30 degrees higher
+        }
+        
+        // Restore original hand joint positions when not animating (but preserve fist animation)
+        // Also check if we need to make a fist for holding the sword
+        bool needLeftFist = gSwordVisible && !gSwordInRightHand;
+        bool needRightFist = gSwordVisible && gSwordInRightHand;
+        
+        if (!gFistAnimationActive && !gIsFist && !needLeftFist && !needRightFist) {
+            if (g_OriginalHandJoints.size() == g_HandJoints.size()) {
+                g_HandJoints = g_OriginalHandJoints;
+            }
+            if (g_OriginalHandJoints2.size() == g_HandJoints2.size()) {
+                g_HandJoints2 = g_OriginalHandJoints2;
+            }
+        }
+        
+        // Apply sword grip fist to the appropriate hand
+        if (needLeftFist) {
+            setHandForm(g_HandJoints, HAND_FIST);
+        }
+        if (needRightFist) {
+            setHandForm(g_HandJoints2, HAND_FIST);
+        }
     }
-    else {
+
+    // Set material properties for concrete or skin
+    if (gConcreteHands) {
         glDisable(GL_TEXTURE_2D);
-        glColor3f(0.85f, 0.64f, 0.52f); // Skin color
+        glColor3f(0.6f, 0.6f, 0.65f); // Concrete gray
+    } else {
+        // Enable texturing if available
+        if (g_TextureEnabled && g_HandTexture != 0) {
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+            glColor3f(1.0f, 1.0f, 1.0f); // White to show texture clearly
+        }
+        else {
+            glDisable(GL_TEXTURE_2D);
+            glColor3f(0.85f, 0.64f, 0.52f); // Skin color
+        }
     }
 
     // --- Draw Left Arm (connected to shoulder peak R15) ---
     glPushMatrix();
     {
-        float shoulderOffset = R14 * 1.05f; // Lowered to R14 level with clearance
-        glTranslatef(-shoulderOffset, Y14, 0.1f); // Position at lowered shoulder level
+        float shoulderOffset = R14 * 0.98f; // Closer to shoulder for better connection
+        glTranslatef(-shoulderOffset, Y14, 0.05f); // Reduced Z offset for tighter connection
         glRotatef(leftShoulderPitch, 1.0f, 0.0f, 0.0f);
         glRotatef(leftShoulderYaw, 0.0f, 1.0f, 0.0f);
         glRotatef(leftShoulderRoll, 0.0f, 0.0f, 1.0f);
@@ -2268,48 +3031,100 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glPopMatrix();
 
         glPushMatrix();
-        glScalef(ARM_SCALE * 0.9f, ARM_SCALE * 0.9f, ARM_SCALE * 0.9f); // Slightly smaller to avoid clipping
-        drawLowPolyArm(g_ArmJoints);
+        if (gConcreteHands) {
+            // Draw concrete arm - more blocky/angular
+            glColor3f(0.55f, 0.55f, 0.6f); // Slightly different concrete shade for arms
+            glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f); // Slightly bigger for concrete look
+            drawLowPolyArm(g_ArmJoints);
+        } else {
+            glScalef(ARM_SCALE * 1.0f, ARM_SCALE * 1.0f, ARM_SCALE * 1.0f); // Use full scale to eliminate gaps
+            drawLowPolyArm(g_ArmJoints);
+        }
         glPopMatrix();
 
         Vec3 elbowPos = g_ArmJoints[3].position;
         glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
-        glRotatef(defaultElbowBend - 15.0f, 1.0f, 0.0f, 0.0f);
+        glRotatef(leftElbowBend - 15.0f, 1.0f, 0.0f, 0.0f);  // Use animated elbow bend
         glTranslatef(-elbowPos.x * ARM_SCALE, -elbowPos.y * ARM_SCALE, -elbowPos.z * ARM_SCALE);
 
         Vec3 leftWristPos = g_ArmJoints.back().position;
         glTranslatef(leftWristPos.x * ARM_SCALE, leftWristPos.y * ARM_SCALE, leftWristPos.z * ARM_SCALE);
-        glRotatef(defaultWristPitch, 1.0f, 0.0f, 0.0f);
-        glRotatef(defaultWristYaw, 0.0f, 1.0f, 0.0f);
-        glRotatef(defaultWristRoll, 0.0f, 0.0f, 1.0f);
+        glRotatef(leftWristPitch, 1.0f, 0.0f, 0.0f);  // Use animated wrist pitch
+        glRotatef(leftWristYaw, 0.0f, 1.0f, 0.0f);    // Use animated wrist yaw
+        glRotatef(leftWristRoll, 0.0f, 0.0f, 1.0f);   // Use animated wrist roll
 
-        glPushMatrix();
-        // Connection to arm wrist - move hand higher to link with arm
-        glTranslatef(0.0f, 0.05f, -0.10f);  // Position hand higher to connect with arm end
-        // Rotate left hand 180 degrees around Y-axis to make palm face forward
-        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
-        glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.0f); // Full scale for better connection
-        if (g_TextureEnabled && g_HandTexture != 0) {
-            glEnable(GL_TEXTURE_2D);
-            glBindTexture(GL_TEXTURE_2D, g_HandTexture);
-            glColor3f(1.0f, 1.0f, 1.0f);
+        // Add sword grip rotation to the wrist joint so arm stays connected
+        if (gSwordVisible && !gSwordInRightHand) {
+            glRotatef(-45.0f, 0.0f, 1.0f, 0.0f); // Rotate wrist 45 degrees for natural sword grip
         }
 
-        drawSkinnedPalm(g_HandJoints);
-        drawLowPolyThumb(g_HandJoints);
-        drawLowPolyFinger(g_HandJoints, 5, 6, 7, 8);
-        drawLowPolyFinger(g_HandJoints, 9, 10, 11, 12);
-        drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
-        drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
+        glPushMatrix();
+        // Better connection to arm wrist - adjust gap based on sword grip
+        if (gSwordVisible && !gSwordInRightHand) {
+            glTranslatef(0.0f, 0.02f, -0.01f);  // Minimal gap for sword grip
+        } else {
+            glTranslatef(0.0f, 0.02f, -0.02f);  // Tighter connection when not holding sword
+        }
+        // Rotate left hand 180 degrees around Y-axis to make palm face forward
+        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
+        
+        glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f); // Extended Z-scale for longer palm
+        
+        // Apply fist for sword grip right before drawing left hand
+        if (gSwordVisible && !gSwordInRightHand) {
+            // Copy fist positions directly from g_FistHandJoints
+            if (g_FistHandJoints.size() == g_HandJoints.size()) {
+                for (size_t i = 0; i < g_HandJoints.size(); ++i) {
+                    g_HandJoints[i].position = g_FistHandJoints[i].position;
+                }
+            }
+        }
+        
+        if (gConcreteHands) {
+            // Draw concrete hands
+            glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
+            drawConcretePalm(g_HandJoints);
+            drawConcreteThumb(g_HandJoints);
+            drawConcreteFinger(g_HandJoints, 5, 6, 7, 8);
+            drawConcreteFinger(g_HandJoints, 9, 10, 11, 12);
+            drawConcreteFinger(g_HandJoints, 13, 14, 15, 16);
+            drawConcreteFinger(g_HandJoints, 17, 18, 19, 20);
+        } else {
+            // Draw skin hands
+            if (g_TextureEnabled && g_HandTexture != 0) {
+                glEnable(GL_TEXTURE_2D);
+                glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+                glColor3f(1.0f, 1.0f, 1.0f);
+            }
+            drawSkinnedPalm(g_HandJoints);
+            drawLowPolyThumb(g_HandJoints);
+            drawLowPolyFinger(g_HandJoints, 5, 6, 7, 8);
+            drawLowPolyFinger(g_HandJoints, 9, 10, 11, 12);
+            drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
+            drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
+        }
         glPopMatrix();
+        
+        // Draw sword in left hand if enabled
+        if (gSwordVisible && !gSwordInRightHand) {
+            glPushMatrix();
+            // Position sword in front of hand for proper grip
+            glTranslatef(0.0f, 0.0f, 0.3f); // Move sword forward in front of hand
+            glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward (same as right hand)
+            glRotatef(-15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip (opposite direction)
+            // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
+            glTranslatef(0.0f, 1.0f, 0.0f); // Move sword up so hilt is in hand
+            drawSword();
+            glPopMatrix();
+        }
     }
     glPopMatrix();
 
     // --- Draw Right Arm (connected to shoulder peak R15) ---
     glPushMatrix();
     {
-        float shoulderOffset = R14 * 1.05f; // Lowered to R14 level with clearance
-        glTranslatef(shoulderOffset, Y14, 0.1f); // Position at lowered shoulder level
+        float shoulderOffset = R14 * 0.98f; // Closer to shoulder for better connection
+        glTranslatef(shoulderOffset, Y14, 0.05f); // Reduced Z offset for tighter connection
         glRotatef(rightShoulderPitch, 1.0f, 0.0f, 0.0f);
         glRotatef(rightShoulderYaw, 0.0f, 1.0f, 0.0f);
         glRotatef(rightShoulderRoll, 0.0f, 0.0f, 1.0f);
@@ -2335,40 +3150,92 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glPopMatrix();
 
         glPushMatrix();
-        glScalef(ARM_SCALE * 0.9f, ARM_SCALE * 0.9f, ARM_SCALE * 0.9f); // Slightly smaller to avoid clipping
-        drawLowPolyArm(g_ArmJoints2);
+        if (gConcreteHands) {
+            // Draw concrete arm - more blocky/angular
+            glColor3f(0.55f, 0.55f, 0.6f); // Slightly different concrete shade for arms
+            glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f); // Slightly bigger for concrete look
+            drawLowPolyArm(g_ArmJoints2);
+        } else {
+            glScalef(ARM_SCALE * 1.0f, ARM_SCALE * 1.0f, ARM_SCALE * 1.0f); // Use full scale to eliminate gaps
+            drawLowPolyArm(g_ArmJoints2);
+        }
         glPopMatrix();
 
         Vec3 rightElbowPos = g_ArmJoints2[3].position;
         glTranslatef(rightElbowPos.x * ARM_SCALE, rightElbowPos.y * ARM_SCALE, rightElbowPos.z * ARM_SCALE);
-        glRotatef(defaultElbowBend - 15.0f, 1.0f, 0.0f, 0.0f);
+        glRotatef(rightElbowBend - 15.0f, 1.0f, 0.0f, 0.0f);  // Use animated elbow bend
         glTranslatef(-rightElbowPos.x * ARM_SCALE, -rightElbowPos.y * ARM_SCALE, -rightElbowPos.z * ARM_SCALE);
 
         Vec3 rightWristPos = g_ArmJoints2.back().position;
         glTranslatef(rightWristPos.x * ARM_SCALE, rightWristPos.y * ARM_SCALE, rightWristPos.z * ARM_SCALE);
-        glRotatef(defaultWristPitch, 1.0f, 0.0f, 0.0f);
-        glRotatef(defaultWristYaw, 0.0f, 1.0f, 0.0f);
-        glRotatef(defaultWristRoll, 0.0f, 0.0f, 1.0f);
+        glRotatef(rightWristPitch, 1.0f, 0.0f, 0.0f);  // Use animated wrist pitch
+        glRotatef(rightWristYaw, 0.0f, 1.0f, 0.0f);    // Use animated wrist yaw  
+        glRotatef(rightWristRoll, 0.0f, 0.0f, 1.0f);   // Use animated wrist roll
 
-        glPushMatrix();
-        // Connection to arm wrist - move hand higher to link with arm
-        glTranslatef(0.0f, 0.05f, -0.10f);  // Position hand higher to connect with arm end
-        // Rotate right hand 180 degrees around Y-axis to make palm face forward
-        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
-        glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.0f); // Full scale for better connection
-        if (g_TextureEnabled && g_HandTexture != 0) {
-            glEnable(GL_TEXTURE_2D);
-            glBindTexture(GL_TEXTURE_2D, g_HandTexture);
-            glColor3f(1.0f, 1.0f, 1.0f);
+        // Add sword grip rotation to the wrist joint so arm stays connected
+        if (gSwordVisible && gSwordInRightHand) {
+            glRotatef(45.0f, 0.0f, 1.0f, 0.0f); // Rotate wrist 45 degrees for natural sword grip
         }
 
-        drawSkinnedPalm2(g_HandJoints2);
-        drawLowPolyThumb(g_HandJoints2);
-        drawLowPolyFinger(g_HandJoints2, 5, 6, 7, 8);
-        drawLowPolyFinger(g_HandJoints2, 9, 10, 11, 12);
-        drawLowPolyFinger(g_HandJoints2, 13, 14, 15, 16);
-        drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
+        glPushMatrix();
+        // Better connection to arm wrist - adjust gap based on sword grip
+        if (gSwordVisible && gSwordInRightHand) {
+            glTranslatef(0.0f, 0.02f, -0.01f);  // Minimal gap for sword grip
+        } else {
+            glTranslatef(0.0f, 0.02f, -0.02f);  // Tighter connection when not holding sword
+        }
+        // Rotate right hand 180 degrees around Y-axis to make palm face forward
+        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
+        
+        glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f); // Extended Z-scale for longer palm
+        
+        // Apply fist for sword grip right before drawing right hand
+        if (gSwordVisible && gSwordInRightHand) {
+            // Copy fist positions directly from g_FistHandJoints2
+            if (g_FistHandJoints2.size() == g_HandJoints2.size()) {
+                for (size_t i = 0; i < g_HandJoints2.size(); ++i) {
+                    g_HandJoints2[i].position = g_FistHandJoints2[i].position;
+                }
+            }
+        }
+        
+        if (gConcreteHands) {
+            // Draw concrete hands
+            glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
+            drawConcretePalm(g_HandJoints2);
+            drawConcreteThumb(g_HandJoints2);
+            drawConcreteFinger(g_HandJoints2, 5, 6, 7, 8);
+            drawConcreteFinger(g_HandJoints2, 9, 10, 11, 12);
+            drawConcreteFinger(g_HandJoints2, 13, 14, 15, 16);
+            drawConcreteFinger(g_HandJoints2, 17, 18, 19, 20);
+        } else {
+            // Draw skin hands
+            if (g_TextureEnabled && g_HandTexture != 0) {
+                glEnable(GL_TEXTURE_2D);
+                glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+                glColor3f(1.0f, 1.0f, 1.0f);
+            }
+            drawSkinnedPalm2(g_HandJoints2);
+            drawLowPolyThumb(g_HandJoints2);
+            drawLowPolyFinger(g_HandJoints2, 5, 6, 7, 8);
+            drawLowPolyFinger(g_HandJoints2, 9, 10, 11, 12);
+            drawLowPolyFinger(g_HandJoints2, 13, 14, 15, 16);
+            drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
+        }
         glPopMatrix();
+        
+        // Draw sword in right hand if enabled
+        if (gSwordVisible && gSwordInRightHand) {
+            glPushMatrix();
+            // Position sword in front of hand for proper grip
+            glTranslatef(0.0f, 0.0f, 0.3f); // Move sword forward in front of hand
+            glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward
+            glRotatef(15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip
+            // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
+            glTranslatef(0.0f, 1.0f, 0.0f); // Move sword up so hilt is in hand
+            drawSword();
+            glPopMatrix();
+        }
     }
     glPopMatrix();
 
@@ -2380,7 +3247,8 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
     glPushMatrix();
     // Position body to connect seamlessly with scaled leg tops
     // Leg mesh max Y is 8.2f, scaled by LEG_SCALE gives the connection point
-    glTranslatef(0.0f, 8.2f * LEG_SCALE, 0.0f); // Connect at top of scaled legs
+    // Adjust slightly lower to create overlap and eliminate gap
+    glTranslatef(0.0f, 8.2f * LEG_SCALE - 0.05f, 0.0f); // Slight overlap for seamless connection
     glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
     glRotatef(g_pose.torsoYaw, 0, 1, 0); glRotatef(g_pose.torsoPitch, 1, 0, 0); glRotatef(g_pose.torsoRoll, 0, 0, 1);
 
@@ -2508,7 +3376,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
 
     glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
     initializeCharacterParts();
-    initializeFistPositions(); // Initialize fist animation data
     QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
 
     MSG msg{};
@@ -2542,8 +3409,9 @@ void updateCharacter(float dt) {
         gWalkPhase += gMoveSpeed * dt * phaseSpeed / (keyShift ? 2.5f : 2.0f);
     }
     
-    // Update fist animation
+    // Update animations
     updateFistAnimation(dt);
+    updateKungFuAnimation(dt);  // Add kung fu animation updates
 }
 
 LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -2559,7 +3427,13 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; gTarget = { 0.0f,3.5f,0.0f }; gCharacterPos = { 0,0,0 }; gCharacterYaw = 0; }
         else if (wParam == '1') { gShowWireframe = !gShowWireframe; }
         else if (wParam == '2') { g_TextureEnabled = !g_TextureEnabled; } // Toggle hand texture
+        else if (wParam == '3') { gConcreteHands = !gConcreteHands; } // Toggle concrete hands
         else if (wParam == 'F') { toggleFistAnimation(); } // Toggle fist animation
+        else if (wParam == 'X') { gSwordVisible = !gSwordVisible; } // Toggle sword visibility
+        else if (wParam == 'Z') { gSwordInRightHand = !gSwordInRightHand; } // Switch sword hand
+        // Kung Fu Animation Styles - Now with flowing anime-like animations!
+        else if (wParam == 'Q') { startKungFuAnimation(1); } // Crane style animation
+        else if (wParam == 'N') { startKungFuAnimation(0); } // Stop animation / Normal pose
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;

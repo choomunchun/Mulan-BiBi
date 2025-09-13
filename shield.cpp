@@ -6,11 +6,12 @@
 
 void drawShield()
 {
-    const int segments = 32; // Increased for a smoother circle
+    const int segments = 32;
     const int rings = 8;
     const float radius = 1.8f;
     const float curve = 0.4f;
-    const float rimWidth = 0.15f; // How thick the rim is
+    const float rimWidth = 0.15f;
+    const float rimThickness = 0.1f;
 
     // --- 1. Draw the inner, curved face of the shield ---
     glColor3f(1.0f, 0.84f, 0.0f); // Gold color
@@ -42,21 +43,42 @@ void drawShield()
     }
 
     // --- 2. Draw the outer rim ---
-    glColor3f(0.9f, 0.74f, 0.0f); // Slightly darker gold for the rim
+    glColor3f(0.9f, 0.74f, 0.0f);
     float rim_z = curve * (1.0f - (innerRadius / radius) * (innerRadius / radius));
 
+    // Front face of the rim
     glBegin(GL_QUAD_STRIP);
     for (int i = 0; i <= segments; ++i) {
         float angle = 2.0f * (float)M_PI * i / segments;
         float c = cos(angle);
         float s = sin(angle);
-
-        // Inner edge of the rim
         glNormal3f(0.0f, 0.0f, 1.0f);
         glVertex3f(innerRadius * c, innerRadius * s, rim_z);
+        glVertex3f(radius * c, radius * s, rim_z * 0.8f);
+    }
+    glEnd();
 
-        // Outer edge of the rim
-        glVertex3f(radius * c, radius * s, rim_z * 0.8f); // Slightly tapered
+    // Back face of the rim
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= segments; ++i) {
+        float angle = 2.0f * (float)M_PI * i / segments;
+        float c = cos(angle);
+        float s = sin(angle);
+        glNormal3f(0.0f, 0.0f, -1.0f);
+        glVertex3f(innerRadius * c, innerRadius * s, rim_z - rimThickness);
+        glVertex3f(radius * c, radius * s, rim_z * 0.8f - rimThickness);
+    }
+    glEnd();
+
+    // Outer edge of the rim
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= segments; ++i) {
+        float angle = 2.0f * (float)M_PI * i / segments;
+        float c = cos(angle);
+        float s = sin(angle);
+        glNormal3f(c, s, 0.0f);
+        glVertex3f(radius * c, radius * s, rim_z * 0.8f);
+        glVertex3f(radius * c, radius * s, rim_z * 0.8f - rimThickness);
     }
     glEnd();
 }

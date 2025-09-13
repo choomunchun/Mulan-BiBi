@@ -1,25 +1,9 @@
 #include "spear.h"
 #include <Windows.h>
 #include <gl/GL.h>
-#define _USE_MATH_DEFINES
-#include <cmath>
+#include "utils.h" // <-- NEW: Include the utility header
 
-// Helper structure for 3D vectors
-struct Vec3f {
-    float x, y, z;
-};
-
-// Helper function for vector math
-Vec3f cross(const Vec3f& a, const Vec3f& b) {
-    return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x };
-}
-Vec3f normalize(const Vec3f& v) {
-    float l = sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    if (l > 1e-6f) {
-        return { v.x / l, v.y / l, v.z / l };
-    }
-    return { 0, 0, 0 };
-}
+// The helper struct and functions are now removed from this file.
 
 void drawSpear()
 {
@@ -31,9 +15,9 @@ void drawSpear()
     glColor3f(0.2f, 0.15f, 0.1f);
     glBegin(GL_QUAD_STRIP);
     for (int i = 0; i <= segments; ++i) {
-        float angle = 2.0f * (float)M_PI * i / segments;
-        float x = shaftRadius * cos(angle);
-        float z = shaftRadius * sin(angle);
+        float angle = 2.0f * PI * i / segments;
+        float x = shaftRadius * cosf(angle); // Use cosf for float
+        float z = shaftRadius * sinf(angle); // Use sinf for float
         glNormal3f(x / shaftRadius, 0.0f, z / shaftRadius);
         glVertex3f(x, 0, z);
         glVertex3f(x, shaftHeight, z);
@@ -41,62 +25,54 @@ void drawSpear()
     glEnd();
 
     // --- 2. Draw Golden Butt Cap (Pommel) ---
-    glColor3f(1.0f, 0.84f, 0.0f); // Gold color
+    glColor3f(1.0f, 0.84f, 0.0f);
     glPushMatrix();
-    // Conical part of the pommel
     glBegin(GL_TRIANGLE_FAN);
     glNormal3f(0.0f, -1.0f, 0.0f);
-    glVertex3f(0.0f, -0.4f, 0.0f); // Tip
+    glVertex3f(0.0f, -0.4f, 0.0f);
     for (int i = 0; i <= segments; ++i) {
-        float angle = 2.0f * (float)M_PI * i / segments;
-        float x = shaftRadius * 1.5f * cos(angle);
-        float z = shaftRadius * 1.5f * sin(angle);
+        float angle = 2.0f * PI * i / segments;
+        float x = shaftRadius * 1.5f * cosf(angle);
+        float z = shaftRadius * 1.5f * sinf(angle);
         glNormal3f(x, -0.5f, z);
-        glVertex3f(x, 0.0f, z); // Base
+        glVertex3f(x, 0.0f, z);
     }
     glEnd();
     glPopMatrix();
-    // The decorative ring below the pommel has been removed.
 
     // --- 3. Draw Golden Guard ---
-    glColor3f(1.0f, 0.84f, 0.0f); // Gold color
+    glColor3f(1.0f, 0.84f, 0.0f);
     glPushMatrix();
     glTranslatef(0.0f, shaftHeight, 0.0f);
     const float guardRadius = 0.2f;
     const float guardHeight = 0.3f;
 
-    // Sides of the guard ring
     glBegin(GL_QUAD_STRIP);
     for (int i = 0; i <= segments; ++i) {
-        float angle = 2.0f * (float)M_PI * i / segments;
-        float x = guardRadius * cos(angle);
-        float z = guardRadius * sin(angle);
+        float angle = 2.0f * PI * i / segments;
+        float x = guardRadius * cosf(angle);
+        float z = guardRadius * sinf(angle);
         glNormal3f(x / guardRadius, 0.0f, z / guardRadius);
-        glVertex3f(x, 0.0f, z); // Bottom edge of guard
-        glVertex3f(x, guardHeight, z); // Top edge of guard
+        glVertex3f(x, 0.0f, z);
+        glVertex3f(x, guardHeight, z);
     }
     glEnd();
-
-    // **NEW**: Bottom cap of the guard ring
     glBegin(GL_TRIANGLE_FAN);
     glNormal3f(0.0f, -1.0f, 0.0f);
-    glVertex3f(0.0f, 0.0f, 0.0f); // Center vertex
+    glVertex3f(0.0f, 0.0f, 0.0f);
     for (int i = 0; i <= segments; i++) {
-        float angle = 2.0f * (float)M_PI * i / segments;
-        glVertex3f(guardRadius * cos(angle), 0.0f, guardRadius * sin(angle));
+        float angle = 2.0f * PI * i / segments;
+        glVertex3f(guardRadius * cosf(angle), 0.0f, guardRadius * sinf(angle));
     }
     glEnd();
-
-    // **NEW**: Top cap of the guard ring
     glBegin(GL_TRIANGLE_FAN);
     glNormal3f(0.0f, 1.0f, 0.0f);
-    glVertex3f(0.0f, guardHeight, 0.0f); // Center vertex
+    glVertex3f(0.0f, guardHeight, 0.0f);
     for (int i = 0; i <= segments; i++) {
-        float angle = 2.0f * (float)M_PI * i / segments;
-        glVertex3f(guardRadius * cos(-angle), guardHeight, guardRadius * sin(-angle));
+        float angle = 2.0f * PI * i / segments;
+        glVertex3f(guardRadius * cosf(-angle), guardHeight, guardRadius * sinf(-angle));
     }
     glEnd();
-
     glPopMatrix();
 
     // --- 4. Draw 3D Spear Blade ---
@@ -140,6 +116,5 @@ void drawSpear()
     glVertex3f(base_back.x, base_back.y, base_back.z);
     glVertex3f(base_right.x, base_right.y, base_right.z);
     glEnd();
-
     glPopMatrix();
 }

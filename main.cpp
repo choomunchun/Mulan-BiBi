@@ -10,6 +10,11 @@
 #include<algorithm>
 #include <string>
 
+#include "utils.h"
+#include "spear.h"
+#include "shield.h"
+#include "armor.h"
+
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
 
@@ -59,6 +64,12 @@ bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift
 bool keyF = false; // For Fist Animation
 bool keyX = false; // For Sword Toggle
 bool keyZ = false; // For Sword Hand Switch
+
+// == Weapon controls
+bool gSpearVisible = false;
+bool gShieldVisible = false;
+bool gWeaponInRightHand = true; // For both spear and sword
+bool gArmorVisible = false;
 
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
@@ -125,7 +136,8 @@ enum HandForm {
     HAND_SPEAR = 3,       // Snake hand - fingers straight and together
     HAND_CRANE_BEAK = 4,  // Crane beak - fingertips together
     HAND_SWORD_FINGER = 5, // Two fingers extended (sword hand)
-    HAND_PALM_STRIKE = 6   // Open palm ready for striking
+    HAND_PALM_STRIKE = 6,   // Open palm ready for striking
+    HAND_GRIP_SPEAR = 7    // for spear
 };
 
 // --- Anime-style Animation Parameters ---
@@ -142,7 +154,7 @@ struct KungFuPose {
 
 // Animation keyframes for each style
 KungFuPose gCraneSequence[4];
-KungFuPose gDragonSequence[4]; 
+KungFuPose gDragonSequence[4];
 KungFuPose gTigerSequence[4];
 KungFuPose gCurrentPose, gTargetPose;
 
@@ -154,8 +166,6 @@ const float RUN_ARM_SWING = 55.0f;       // Running arm swing angle
 const float BODY_BOB_AMOUNT = 0.03f;     // How much the body moves up and down
 
 // --- Data Structures ---
-struct Vec3f { float x, y, z; };
-struct Tri { int a, b, c; };
 
 // Base mesh data (read-only after creation)
 std::vector<Vec3f> gAllVertices;
@@ -177,6 +187,12 @@ HBITMAP hBMP = NULL; // bitmap handle
 
 // Texture enabled flag
 bool g_TextureEnabled = true;
+
+// --- Body/Head Data ---
+GLUquadric* g_headQuadric = nullptr;
+float* segCos = nullptr;
+float* segSin = nullptr;
+
 
 // =========================== Texture Support ===========================
 // Texture loading function
@@ -239,7 +255,6 @@ GLuint createSkinTexture() {
 // =============================================================
 
 // --- Body/Head Data ---
-GLUquadric* g_headQuadric = nullptr;
 #define C0 1.0000000f
 #define S0 0.0000000f
 #define C1 0.9238795f
@@ -273,63 +288,22 @@ GLUquadric* g_headQuadric = nullptr;
 #define C15 0.9238795f
 #define S15 -0.3826834f
 // Dynamic segment arrays for configurable geometry
-float* segCos = nullptr;
-float* segSin = nullptr;
 
 // Initialize segment arrays based on TORSO_SEGMENTS
 void initializeSegmentArrays() {
     if (segCos) delete[] segCos;
     if (segSin) delete[] segSin;
-    
+
     segCos = new float[TORSO_SEGMENTS];
     segSin = new float[TORSO_SEGMENTS];
-    
+
     for (int i = 0; i < TORSO_SEGMENTS; i++) {
         float angle = 2.0f * PI * i / TORSO_SEGMENTS;
         segCos[i] = cos(angle);
         segSin[i] = sin(angle);
     }
 }
-#define R0 0.50f  // Hip area - wider for better leg connection
-#define R1 0.49f
-#define R2 0.48f
-#define R3 0.47f
-#define R4 0.46f
-#define R5 0.43f  // Waist area - slightly narrower for feminine shape
-#define R6 0.40f
-#define R7 0.37f
-#define R8 0.35f  // Lower torso - wider for natural leg attachment
-#define R9 0.37f
-#define R10 0.39f
-#define R11 0.41f  // Upper torso - broader for mature proportions
-#define R12 0.45f  // Upper torso - broader for strong shoulders
-#define R13 0.44f  // Pre-shoulder area - smooth transition
-#define R14 0.43f  // Shoulder area - gentle rise
-#define R15 0.40f  // Shoulder peak - feminine curve
-#define R16 0.28f  // Upper shoulder slope - slimmer feminine transition
-#define R17 0.16f  // Lower shoulder slope - elegant curve to neck
-#define R18 0.09f  // Neck base - slim feminine neck
-#define R19 0.07f  // Upper neck - connects to head
-#define Y0 0.00f
-#define Y1 0.08f
-#define Y2 0.16f
-#define Y3 0.24f
-#define Y4 0.32f
-#define Y5 0.45f
-#define Y6 0.58f
-#define Y7 0.70f
-#define Y8 0.83f
-#define Y9 0.96f
-#define Y10 1.09f
-#define Y11 1.22f
-#define Y12 1.31f
-#define Y13 1.41f
-#define Y14 1.47f
-#define Y15 1.54f
-#define Y16 1.58f
-#define Y17 1.66f  // Upper shoulder slope - feminine curve
-#define Y18 1.76f  // Lower shoulder slope - elegant transition
-#define Y19 1.85f  // Upper neck - connects to head
+
 #define HEAD_CENTER_Y 1.92f  // Perfectly centered on torso middle, sits naturally on neck
 #define HEAD_RADIUS   0.3f
 #define QUAD(r1,y1,r2,y2,cA,sA,cB,sB) glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cA),(y2),(r2)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cB),(y1),(r1)*(sB));
@@ -388,7 +362,7 @@ void setSwordMaterial(const SwordMaterial& mat) {
 }
 
 // --- Sword Drawing Functions ---
-void drawSwordSphere(double r, int lats, int longs) { 
+void drawSwordSphere(double r, int lats, int longs) {
     for (int i = 0; i <= lats; i++) {
         double lat0 = PI * (-0.5 + (double)(i - 1) / lats);
         double z0 = r * sin(lat0); double zr0 = r * cos(lat0);
@@ -546,28 +520,28 @@ void drawSwordTassel() {
 // Main sword drawing function
 void drawSword() {
     if (!gSwordVisible) return;
-    
+
     glPushMatrix();
-    
+
     // Scale the sword to fit in hand
     glScalef(gSwordScale, gSwordScale, gSwordScale);
-    
+
     // Position sword components relative to grip point (0,0,0)
     glTranslatef(0.0, -3.0, 0.0); // Move so grip is at origin
-    
+
     // Render sword components
     drawSwordBlade();
     drawSwordGuard();
-    glPushMatrix(); 
-    glTranslatef(0.0, -1.2, 0.0); 
-    drawSwordHilt(); 
+    glPushMatrix();
+    glTranslatef(0.0, -1.2, 0.0);
+    drawSwordHilt();
     glPopMatrix();
-    glPushMatrix(); 
-    glTranslatef(0.0, -1.3, 0.0); 
-    drawSwordPommel(); 
-    drawSwordTassel(); 
+    glPushMatrix();
+    glTranslatef(0.0, -1.3, 0.0);
+    drawSwordPommel();
+    drawSwordTassel();
     glPopMatrix();
-    
+
     glPopMatrix();
 }
 
@@ -585,7 +559,6 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
 void drawSkirt(float leftLegAngle, float rightLegAngle);
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle);
 void drawInternalShoulderJoints();
-void drawCurvedBand(float rA, float yA, float rB, float yB);
 void drawCustomFaceShape();
 void drawMulanHead();
 void drawMulanFace();
@@ -604,10 +577,7 @@ void updateKungFuAnimation(float deltaTime);
 void startKungFuAnimation(int style);
 
 // --- Math & Model Building ---
-Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z - q.z }; }
-Vec3f cross(const Vec3f& a, const Vec3f& b) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
 float dot(const Vec3f& a, const Vec3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-Vec3f normalize(const Vec3f& v) { float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); return (l > 1e-6f) ? Vec3f{ v.x / l, v.y / l, v.z / l } : Vec3f{ 0,0,0 }; }
 
 // --------------------- FOOT GEOMETRY (from leg.cpp) ---------------------
 const Vec3f gFootVertices[] = {
@@ -679,15 +649,6 @@ const int gNumFootVertices = sizeof(gFootVertices) / sizeof(gFootVertices[0]);
 const int gNumFootQuads = sizeof(gFootQuads) / sizeof(gFootQuads[0]);
 
 // --------------------- Math Helpers from leg.cpp ---------------------
-std::vector<Vec3f> generateRing(float cx, float cy, float cz, float radiusX, float radiusZ, int numSegments, float startAngle = 0.0f) {
-    std::vector<Vec3f> ringVertices;
-    for (int i = 0; i < numSegments; ++i) {
-        float angle = startAngle + 2.0f * (float)M_PI * i / numSegments;
-        ringVertices.push_back({ cx + radiusX * std::sin(angle), cy, cz + radiusZ * std::cos(angle) });
-    }
-    return ringVertices;
-}
-
 void addRingQuads(int ring1StartIdx, int ring2StartIdx, int numSegments) {
     for (int i = 0; i < numSegments; ++i) {
         int i0 = ring1StartIdx + i;
@@ -880,11 +841,11 @@ void initializeFistPositions() {
     // Store original positions
     g_OriginalHandJoints = g_HandJoints;
     g_OriginalHandJoints2 = g_HandJoints2;
-    
+
     // Create fist positions for left hand
     g_FistHandJoints.clear();
     g_FistHandJoints.resize(21);
-    
+
     // WRIST (0) - stays the same
     g_FistHandJoints[0] = { {0.0f, 0.0f, 0.0f}, -1 };
 
@@ -917,12 +878,12 @@ void initializeFistPositions() {
     g_FistHandJoints[18] = { {-0.4f, -0.2f, 0.9f}, 17 };
     g_FistHandJoints[19] = { {-0.3f, -0.4f, 0.7f}, 18 };
     g_FistHandJoints[20] = { {-0.2f, -0.5f, 0.5f}, 19 };
-    
+
     // Create fist positions for right hand (mirrored)
     g_FistHandJoints2.clear();
     g_FistHandJoints2.resize(21);
     float flipSign = -1.0f;
-    
+
     g_FistHandJoints2[0] = { {0.0f, 0.0f, 0.0f}, -1 };
     g_FistHandJoints2[1] = { {0.4f * flipSign, -0.2f, 0.2f}, 0 };
     g_FistHandJoints2[2] = { {0.5f * flipSign, -0.3f, 0.4f}, 1 };
@@ -958,22 +919,22 @@ float smoothStep(float t) {
 
 void updateFistAnimation(float deltaTime) {
     if (!gFistAnimationActive) return;
-    
+
     gFistAnimationTime += deltaTime;
-    
+
     // Calculate animation progress (0 to 1)
     float progress = gFistAnimationTime / FIST_ANIMATION_DURATION;
-    
+
     if (progress >= 1.0f) {
         // Animation finished
         progress = 1.0f;
         gFistAnimationActive = false;
         gIsFist = !gIsFist; // Toggle to the target state
     }
-    
+
     // Apply smooth easing
     float easedProgress = smoothStep(progress);
-    
+
     // Choose interpolation direction based on target state (inverse of current)
     if (!gIsFist) {
         // Currently open, going to fist
@@ -981,7 +942,8 @@ void updateFistAnimation(float deltaTime) {
             g_HandJoints[i].position = lerp(g_OriginalHandJoints[i].position, g_FistHandJoints[i].position, easedProgress);
             g_HandJoints2[i].position = lerp(g_OriginalHandJoints2[i].position, g_FistHandJoints2[i].position, easedProgress);
         }
-    } else {
+    }
+    else {
         // Currently fist, going to open
         for (int i = 0; i < 21; ++i) {
             g_HandJoints[i].position = lerp(g_FistHandJoints[i].position, g_OriginalHandJoints[i].position, easedProgress);
@@ -992,7 +954,7 @@ void updateFistAnimation(float deltaTime) {
 
 void toggleFistAnimation() {
     if (gFistAnimationActive) return; // Don't interrupt ongoing animation
-    
+
     gFistAnimationActive = true;
     gFistAnimationTime = 0.0f;
     // The animation direction is determined by the current gIsFist state in updateFistAnimation
@@ -1319,7 +1281,7 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
     drawAnatomicalArmSegment(armJoints[2].position, armJoints[3].position, 1.1f, 0.9f, 0.9f, 0.65f);
     drawAnatomicalArmSegment(armJoints[3].position, armJoints[4].position, 1.05f, 0.85f, 0.85f, 0.7f);
     drawAnatomicalArmSegment(armJoints[4].position, armJoints[5].position, 1.3f, 1.0f, 1.1f, 0.8f);
-    
+
     // Add wrist extension segment to bridge gap to hand
     Vec3 wristExtend = { 0.0f, 0.02f, 0.18f };  // Final bridge to hand
     drawAnatomicalArmSegment(armJoints[5].position, wristExtend, 1.1f, 0.8f, 0.8f, 0.6f);
@@ -1790,26 +1752,26 @@ static void drawConcreteFingerSegment(const Vec3& start, const Vec3& end, float 
 
     // Concrete texture appearance - more angular/blocky
     glColor3f(0.6f, 0.6f, 0.65f); // Gray concrete color
-    
+
     // Draw as angular cylinder with concrete-like surface
     const int sides = 6; // Hexagonal for more concrete-like appearance
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < sides; i++) {
         float angle1 = (float)i * 2.0f * PI / sides;
         float angle2 = (float)(i + 1) * 2.0f * PI / sides;
-        
+
         float x1 = radius * cosf(angle1);
         float y1 = radius * sinf(angle1);
         float x2 = radius * cosf(angle2);
         float y2 = radius * sinf(angle2);
-        
+
         // Side faces with rough normals
         Vec3f n = normalize({ (x1 + x2) * 0.5f, (y1 + y2) * 0.5f, 0.0f });
         glNormal3f(n.x, n.y, n.z);
         glVertex3f(x1, y1, 0.0f);
         glVertex3f(x2, y2, 0.0f);
         glVertex3f(x2, y2, length);
-        
+
         glVertex3f(x1, y1, 0.0f);
         glVertex3f(x2, y2, length);
         glVertex3f(x1, y1, length);
@@ -1833,7 +1795,7 @@ static void drawConcreteFingerSegment(const Vec3& start, const Vec3& end, float 
 
 static void drawConcretePalm(const std::vector<HandJoint>& joints) {
     glColor3f(0.6f, 0.6f, 0.65f); // Concrete gray
-    
+
     Vec3 wrist = joints[0].position;
     Vec3 indexBase = joints[5].position;
     Vec3 middleBase = joints[9].position;
@@ -1843,12 +1805,12 @@ static void drawConcretePalm(const std::vector<HandJoint>& joints) {
 
     // Draw palm as concrete block
     glBegin(GL_TRIANGLES);
-    
+
     // Palm surface - more angular/geometric
-    Vec3 palmCenter = { (indexBase.x + pinkyBase.x) * 0.5f, 
-                       (indexBase.y + pinkyBase.y) * 0.5f + 0.1f, 
+    Vec3 palmCenter = { (indexBase.x + pinkyBase.x) * 0.5f,
+                       (indexBase.y + pinkyBase.y) * 0.5f + 0.1f,
                        (indexBase.z + pinkyBase.z) * 0.5f };
-    
+
     // Create blocky palm geometry
     Vec3 corners[8] = {
         { wrist.x - 0.6f, wrist.y - 0.1f, wrist.z - 0.2f },
@@ -1860,7 +1822,7 @@ static void drawConcretePalm(const std::vector<HandJoint>& joints) {
         { palmCenter.x + 0.6f, palmCenter.y + 0.3f, palmCenter.z },
         { palmCenter.x - 0.6f, palmCenter.y + 0.3f, palmCenter.z }
     };
-    
+
     // Draw cube faces
     int faces[12][3] = {
         {0,1,2}, {0,2,3}, // bottom
@@ -1870,12 +1832,12 @@ static void drawConcretePalm(const std::vector<HandJoint>& joints) {
         {0,3,4}, {3,7,4}, // left
         {1,5,2}, {2,5,6}  // right
     };
-    
+
     for (int i = 0; i < 12; i++) {
         Vec3 v1 = corners[faces[i][0]];
         Vec3 v2 = corners[faces[i][1]];
         Vec3 v3 = corners[faces[i][2]];
-        
+
         // Calculate normal using Vec3f functions
         Vec3f v1f = { v1.x, v1.y, v1.z };
         Vec3f v2f = { v2.x, v2.y, v2.z };
@@ -1907,170 +1869,193 @@ static void drawConcreteFinger(const std::vector<HandJoint>& joints, int mcpIdx,
 
 void setHandForm(std::vector<HandJoint>& joints, HandForm form) {
     switch (form) {
-        case HAND_CLAW: { // Tiger Claw - fingers curved like attacking claws
-            // Thumb - curved inward
-            joints[1].position = { 0.4f, -0.1f, 0.3f };
-            joints[2].position = { 0.7f, -0.2f, 0.5f };
-            joints[3].position = { 0.9f, -0.3f, 0.6f };
-            joints[4].position = { 1.0f, -0.4f, 0.7f };
-            
-            // Index finger - strongly curved claw
-            joints[5].position = { 0.3f, 0.1f, 1.0f };
-            joints[6].position = { 0.4f, -0.1f, 1.5f };
-            joints[7].position = { 0.5f, -0.4f, 1.8f };
-            joints[8].position = { 0.6f, -0.6f, 1.9f };
-            
-            // Middle finger - curved claw
-            joints[9].position = { 0.0f, 0.1f, 1.1f };
-            joints[10].position = { 0.1f, -0.1f, 1.6f };
-            joints[11].position = { 0.2f, -0.4f, 1.9f };
-            joints[12].position = { 0.3f, -0.6f, 2.0f };
-            
-            // Ring finger - curved claw
-            joints[13].position = { -0.3f, 0.1f, 1.0f };
-            joints[14].position = { -0.2f, -0.1f, 1.5f };
-            joints[15].position = { -0.1f, -0.4f, 1.8f };
-            joints[16].position = { 0.0f, -0.6f, 1.9f };
-            
-            // Pinky - small claw
-            joints[17].position = { -0.5f, 0.05f, 0.8f };
-            joints[18].position = { -0.4f, -0.1f, 1.2f };
-            joints[19].position = { -0.3f, -0.3f, 1.4f };
-            joints[20].position = { -0.2f, -0.5f, 1.5f };
-            break;
-        }
-            
-        case HAND_SPEAR: { // Snake Hand - fingers straight and together
-            // Thumb - tucked along palm
-            joints[1].position = { 0.3f, -0.2f, 0.2f };
-            joints[2].position = { 0.4f, -0.3f, 0.4f };
-            joints[3].position = { 0.5f, -0.4f, 0.5f };
-            joints[4].position = { 0.6f, -0.5f, 0.6f };
-            
-            // All fingers straight and close together
-            joints[5].position = { 0.1f, 0.1f, 1.0f };
-            joints[6].position = { 0.1f, 0.0f, 1.7f };
-            joints[7].position = { 0.1f, 0.0f, 2.2f };
-            joints[8].position = { 0.1f, 0.0f, 2.6f };
-            
-            joints[9].position = { 0.0f, 0.1f, 1.1f };
-            joints[10].position = { 0.0f, 0.0f, 1.8f };
-            joints[11].position = { 0.0f, 0.0f, 2.3f };
-            joints[12].position = { 0.0f, 0.0f, 2.7f };
-            
-            joints[13].position = { -0.1f, 0.1f, 1.0f };
-            joints[14].position = { -0.1f, 0.0f, 1.7f };
-            joints[15].position = { -0.1f, 0.0f, 2.2f };
-            joints[16].position = { -0.1f, 0.0f, 2.6f };
-            
-            joints[17].position = { -0.2f, 0.05f, 0.9f };
-            joints[18].position = { -0.2f, 0.0f, 1.5f };
-            joints[19].position = { -0.2f, 0.0f, 1.9f };
-            joints[20].position = { -0.2f, 0.0f, 2.2f };
-            break;
-        }
-            
-        case HAND_CRANE_BEAK: { // Crane Beak - fingertips together
-            // All fingertips meet at a point
-            Vec3 beakTip = { 0.0f, 0.1f, 2.3f };
-            
-            joints[1].position = { 0.3f, -0.1f, 0.4f };
-            joints[2].position = { 0.4f, 0.0f, 1.2f };
-            joints[3].position = { 0.2f, 0.05f, 1.8f };
-            joints[4].position = beakTip;
-            
-            joints[5].position = { 0.2f, 0.1f, 1.0f };
-            joints[6].position = { 0.2f, 0.05f, 1.6f };
-            joints[7].position = { 0.1f, 0.08f, 2.0f };
-            joints[8].position = beakTip;
-            
-            joints[9].position = { 0.0f, 0.1f, 1.1f };
-            joints[10].position = { 0.0f, 0.05f, 1.7f };
-            joints[11].position = { 0.0f, 0.1f, 2.1f };
-            joints[12].position = beakTip;
-            
-            joints[13].position = { -0.2f, 0.1f, 1.0f };
-            joints[14].position = { -0.2f, 0.05f, 1.6f };
-            joints[15].position = { -0.1f, 0.08f, 2.0f };
-            joints[16].position = beakTip;
-            
-            joints[17].position = { -0.3f, 0.05f, 0.9f };
-            joints[18].position = { -0.3f, 0.0f, 1.4f };
-            joints[19].position = { -0.2f, 0.05f, 1.8f };
-            joints[20].position = beakTip;
-            break;
-        }
-            
-        case HAND_SWORD_FINGER: { // Two fingers extended (sword hand)
-            // Thumb - folded down
-            joints[1].position = { 0.4f, -0.2f, 0.2f };
-            joints[2].position = { 0.5f, -0.4f, 0.3f };
-            joints[3].position = { 0.6f, -0.5f, 0.4f };
-            joints[4].position = { 0.7f, -0.6f, 0.5f };
-            
-            // Index and middle fingers extended (sword fingers)
-            joints[5].position = { 0.2f, 0.1f, 1.0f };
-            joints[6].position = { 0.2f, 0.0f, 1.7f };
-            joints[7].position = { 0.2f, 0.0f, 2.2f };
-            joints[8].position = { 0.2f, 0.0f, 2.6f };
-            
-            joints[9].position = { -0.2f, 0.1f, 1.1f };
-            joints[10].position = { -0.2f, 0.0f, 1.8f };
-            joints[11].position = { -0.2f, 0.0f, 2.3f };
-            joints[12].position = { -0.2f, 0.0f, 2.7f };
-            
-            // Ring and pinky folded
-            joints[13].position = { -0.4f, 0.1f, 1.0f };
-            joints[14].position = { -0.4f, -0.3f, 1.2f };
-            joints[15].position = { -0.3f, -0.5f, 1.0f };
-            joints[16].position = { -0.2f, -0.6f, 0.8f };
-            
-            joints[17].position = { -0.6f, 0.05f, 0.8f };
-            joints[18].position = { -0.5f, -0.3f, 0.9f };
-            joints[19].position = { -0.4f, -0.5f, 0.7f };
-            joints[20].position = { -0.3f, -0.6f, 0.5f };
-            break;
-        }
-            
-        case HAND_PALM_STRIKE: { // Open palm ready for striking
-            // Thumb extended and strong
-            joints[1].position = { 0.6f, -0.1f, 0.4f };
-            joints[2].position = { 0.9f, 0.0f, 0.7f };
-            joints[3].position = { 1.1f, 0.1f, 0.9f };
-            joints[4].position = { 1.2f, 0.2f, 1.1f };
-            
-            // All fingers extended and spread for maximum surface area
-            joints[5].position = { 0.4f, 0.1f, 1.0f };
-            joints[6].position = { 0.4f, 0.0f, 1.8f };
-            joints[7].position = { 0.4f, 0.0f, 2.3f };
-            joints[8].position = { 0.4f, 0.0f, 2.7f };
-            
-            joints[9].position = { 0.0f, 0.1f, 1.1f };
-            joints[10].position = { 0.0f, 0.0f, 1.9f };
-            joints[11].position = { 0.0f, 0.0f, 2.4f };
-            joints[12].position = { 0.0f, 0.0f, 2.8f };
-            
-            joints[13].position = { -0.4f, 0.1f, 1.0f };
-            joints[14].position = { -0.4f, 0.0f, 1.8f };
-            joints[15].position = { -0.4f, 0.0f, 2.3f };
-            joints[16].position = { -0.4f, 0.0f, 2.7f };
-            
-            joints[17].position = { -0.6f, 0.05f, 0.8f };
-            joints[18].position = { -0.6f, 0.0f, 1.5f };
-            joints[19].position = { -0.6f, 0.0f, 1.9f };
-            joints[20].position = { -0.6f, 0.0f, 2.2f };
-            break;
-        }
-        
-        default:
-            // Keep original hand positions for HAND_OPEN and HAND_FIST
-            break;
+    case HAND_GRIP_SPEAR: {
+        joints[1].position = { 0.4f, -0.1f, 0.3f };
+        joints[2].position = { 0.5f, -0.2f, 0.5f };
+        joints[3].position = { 0.4f, -0.3f, 0.7f };
+        joints[4].position = { 0.3f, -0.4f, 0.9f };
+        joints[5].position = { 0.3f, 0.1f, 1.0f };
+        joints[6].position = { 0.3f, 0.0f, 1.5f };
+        joints[7].position = { 0.2f, -0.3f, 1.6f };
+        joints[8].position = { 0.1f, -0.5f, 1.5f };
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { 0.0f, 0.0f, 1.7f };
+        joints[11].position = { -0.1f, -0.3f, 1.8f };
+        joints[12].position = { -0.2f, -0.5f, 1.7f };
+        joints[13].position = { -0.3f, 0.1f, 1.0f };
+        joints[14].position = { -0.3f, 0.0f, 1.6f };
+        joints[15].position = { -0.4f, -0.3f, 1.7f };
+        joints[16].position = { -0.5f, -0.5f, 1.6f };
+        joints[17].position = { -0.5f, 0.05f, 0.8f };
+        joints[18].position = { -0.5f, -0.1f, 1.2f };
+        joints[19].position = { -0.6f, -0.3f, 1.3f };
+        joints[20].position = { -0.7f, -0.5f, 1.2f };
+        break;
+    }
+    case HAND_CLAW: { // Tiger Claw - fingers curved like attacking claws
+        // Thumb - curved inward
+        joints[1].position = { 0.4f, -0.1f, 0.3f };
+        joints[2].position = { 0.7f, -0.2f, 0.5f };
+        joints[3].position = { 0.9f, -0.3f, 0.6f };
+        joints[4].position = { 1.0f, -0.4f, 0.7f };
+
+        // Index finger - strongly curved claw
+        joints[5].position = { 0.3f, 0.1f, 1.0f };
+        joints[6].position = { 0.4f, -0.1f, 1.5f };
+        joints[7].position = { 0.5f, -0.4f, 1.8f };
+        joints[8].position = { 0.6f, -0.6f, 1.9f };
+
+        // Middle finger - curved claw
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { 0.1f, -0.1f, 1.6f };
+        joints[11].position = { 0.2f, -0.4f, 1.9f };
+        joints[12].position = { 0.3f, -0.6f, 2.0f };
+
+        // Ring finger - curved claw
+        joints[13].position = { -0.3f, 0.1f, 1.0f };
+        joints[14].position = { -0.2f, -0.1f, 1.5f };
+        joints[15].position = { -0.1f, -0.4f, 1.8f };
+        joints[16].position = { 0.0f, -0.6f, 1.9f };
+
+        // Pinky - small claw
+        joints[17].position = { -0.5f, 0.05f, 0.8f };
+        joints[18].position = { -0.4f, -0.1f, 1.2f };
+        joints[19].position = { -0.3f, -0.3f, 1.4f };
+        joints[20].position = { -0.2f, -0.5f, 1.5f };
+        break;
+    }
+
+    case HAND_SPEAR: { // Snake Hand - fingers straight and together
+        // Thumb - tucked along palm
+        joints[1].position = { 0.3f, -0.2f, 0.2f };
+        joints[2].position = { 0.4f, -0.3f, 0.4f };
+        joints[3].position = { 0.5f, -0.4f, 0.5f };
+        joints[4].position = { 0.6f, -0.5f, 0.6f };
+
+        // All fingers straight and close together
+        joints[5].position = { 0.1f, 0.1f, 1.0f };
+        joints[6].position = { 0.1f, 0.0f, 1.7f };
+        joints[7].position = { 0.1f, 0.0f, 2.2f };
+        joints[8].position = { 0.1f, 0.0f, 2.6f };
+
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { 0.0f, 0.0f, 1.8f };
+        joints[11].position = { 0.0f, 0.0f, 2.3f };
+        joints[12].position = { 0.0f, 0.0f, 2.7f };
+
+        joints[13].position = { -0.1f, 0.1f, 1.0f };
+        joints[14].position = { -0.1f, 0.0f, 1.7f };
+        joints[15].position = { -0.1f, 0.0f, 2.2f };
+        joints[16].position = { -0.1f, 0.0f, 2.6f };
+
+        joints[17].position = { -0.2f, 0.05f, 0.9f };
+        joints[18].position = { -0.2f, 0.0f, 1.5f };
+        joints[19].position = { -0.2f, 0.0f, 1.9f };
+        joints[20].position = { -0.2f, 0.0f, 2.2f };
+        break;
+    }
+
+    case HAND_CRANE_BEAK: { // Crane Beak - fingertips together
+        // All fingertips meet at a point
+        Vec3 beakTip = { 0.0f, 0.1f, 2.3f };
+
+        joints[1].position = { 0.3f, -0.1f, 0.4f };
+        joints[2].position = { 0.4f, 0.0f, 1.2f };
+        joints[3].position = { 0.2f, 0.05f, 1.8f };
+        joints[4].position = beakTip;
+
+        joints[5].position = { 0.2f, 0.1f, 1.0f };
+        joints[6].position = { 0.2f, 0.05f, 1.6f };
+        joints[7].position = { 0.1f, 0.08f, 2.0f };
+        joints[8].position = beakTip;
+
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { 0.0f, 0.05f, 1.7f };
+        joints[11].position = { 0.0f, 0.1f, 2.1f };
+        joints[12].position = beakTip;
+
+        joints[13].position = { -0.2f, 0.1f, 1.0f };
+        joints[14].position = { -0.2f, 0.05f, 1.6f };
+        joints[15].position = { -0.1f, 0.08f, 2.0f };
+        joints[16].position = beakTip;
+
+        joints[17].position = { -0.3f, 0.05f, 0.9f };
+        joints[18].position = { -0.3f, 0.0f, 1.4f };
+        joints[19].position = { -0.2f, 0.05f, 1.8f };
+        joints[20].position = beakTip;
+        break;
+    }
+
+    case HAND_SWORD_FINGER: { // Two fingers extended (sword hand)
+        // Thumb - folded down
+        joints[1].position = { 0.4f, -0.2f, 0.2f };
+        joints[2].position = { 0.5f, -0.4f, 0.3f };
+        joints[3].position = { 0.6f, -0.5f, 0.4f };
+        joints[4].position = { 0.7f, -0.6f, 0.5f };
+
+        // Index and middle fingers extended (sword fingers)
+        joints[5].position = { 0.2f, 0.1f, 1.0f };
+        joints[6].position = { 0.2f, 0.0f, 1.7f };
+        joints[7].position = { 0.2f, 0.0f, 2.2f };
+        joints[8].position = { 0.2f, 0.0f, 2.6f };
+
+        joints[9].position = { -0.2f, 0.1f, 1.1f };
+        joints[10].position = { -0.2f, 0.0f, 1.8f };
+        joints[11].position = { -0.2f, 0.0f, 2.3f };
+        joints[12].position = { -0.2f, 0.0f, 2.7f };
+
+        // Ring and pinky folded
+        joints[13].position = { -0.4f, 0.1f, 1.0f };
+        joints[14].position = { -0.4f, -0.3f, 1.2f };
+        joints[15].position = { -0.3f, -0.5f, 1.0f };
+        joints[16].position = { -0.2f, -0.6f, 0.8f };
+
+        joints[17].position = { -0.6f, 0.05f, 0.8f };
+        joints[18].position = { -0.5f, -0.3f, 0.9f };
+        joints[19].position = { -0.4f, -0.5f, 0.7f };
+        joints[20].position = { -0.3f, -0.6f, 0.5f };
+        break;
+    }
+
+    case HAND_PALM_STRIKE: { // Open palm ready for striking
+        // Thumb extended and strong
+        joints[1].position = { 0.6f, -0.1f, 0.4f };
+        joints[2].position = { 0.9f, 0.0f, 0.7f };
+        joints[3].position = { 1.1f, 0.1f, 0.9f };
+        joints[4].position = { 1.2f, 0.2f, 1.1f };
+
+        // All fingers extended and spread for maximum surface area
+        joints[5].position = { 0.4f, 0.1f, 1.0f };
+        joints[6].position = { 0.4f, 0.0f, 1.8f };
+        joints[7].position = { 0.4f, 0.0f, 2.3f };
+        joints[8].position = { 0.4f, 0.0f, 2.7f };
+
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { 0.0f, 0.0f, 1.9f };
+        joints[11].position = { 0.0f, 0.0f, 2.4f };
+        joints[12].position = { 0.0f, 0.0f, 2.8f };
+
+        joints[13].position = { -0.4f, 0.1f, 1.0f };
+        joints[14].position = { -0.4f, 0.0f, 1.8f };
+        joints[15].position = { -0.4f, 0.0f, 2.3f };
+        joints[16].position = { -0.4f, 0.0f, 2.7f };
+
+        joints[17].position = { -0.6f, 0.05f, 0.8f };
+        joints[18].position = { -0.6f, 0.0f, 1.5f };
+        joints[19].position = { -0.6f, 0.0f, 1.9f };
+        joints[20].position = { -0.6f, 0.0f, 2.2f };
+        break;
+    }
+
+    default:
+        // Keep original hand positions for HAND_OPEN and HAND_FIST
+        break;
     }
 }
 
 void initializeKungFuSequences() {
     // Crane Style Sequence - Graceful, flowing like a crane with precise hand forms
-    gCraneSequence[0] = { 45.0f, 90.0f, -30.0f, 0.0f, -20.0f, 20.0f, -30.0f, 0.0f, 0.0f, 0.0f, 0.0f, 
+    gCraneSequence[0] = { 45.0f, 90.0f, -30.0f, 0.0f, -20.0f, 20.0f, -30.0f, 0.0f, 0.0f, 0.0f, 0.0f,
                          HAND_CRANE_BEAK, HAND_PALM_STRIKE, 15.0f, 20.0f, -10.0f, 5.0f }; // Preparatory stance
     gCraneSequence[1] = { 120.0f, 45.0f, -60.0f, 30.0f, -40.0f, -10.0f, -60.0f, -30.0f, -15.0f, 10.0f, 5.0f,
                          HAND_CRANE_BEAK, HAND_CRANE_BEAK, 5.0f, 10.0f, -20.0f, -15.0f }; // Wing spread high
@@ -2104,7 +2089,7 @@ void initializeKungFuSequences() {
 KungFuPose lerpPose(const KungFuPose& from, const KungFuPose& to, float t) {
     // Apply easing function for smoother animation
     float easedT = t * t * (3.0f - 2.0f * t); // Smooth step
-    
+
     KungFuPose result;
     result.leftShoulderPitch = from.leftShoulderPitch + (to.leftShoulderPitch - from.leftShoulderPitch) * easedT;
     result.rightShoulderPitch = from.rightShoulderPitch + (to.rightShoulderPitch - from.rightShoulderPitch) * easedT;
@@ -2121,44 +2106,44 @@ KungFuPose lerpPose(const KungFuPose& from, const KungFuPose& to, float t) {
     result.rightElbowBend = from.rightElbowBend + (to.rightElbowBend - from.rightElbowBend) * easedT;
     result.leftWristPitch = from.leftWristPitch + (to.leftWristPitch - from.leftWristPitch) * easedT;
     result.rightWristPitch = from.rightWristPitch + (to.rightWristPitch - from.rightWristPitch) * easedT;
-    
+
     // For hand forms, switch at halfway point for crisp transitions
     result.leftHandForm = (easedT < 0.5f) ? from.leftHandForm : to.leftHandForm;
     result.rightHandForm = (easedT < 0.5f) ? from.rightHandForm : to.rightHandForm;
-    
+
     return result;
 }
 
 void updateKungFuAnimation(float deltaTime) {
     if (!gKungFuAnimating) return;
-    
+
     gKungFuAnimationTime += deltaTime * KUNGFU_ANIMATION_SPEED;
-    
+
     // Calculate which phase we're in and progress within that phase
     float totalPhaseTime = gKungFuAnimationTime;
     int currentPhase = (int)(totalPhaseTime / PHASE_DURATION) % 4;
     float phaseProgress = fmodf(totalPhaseTime, PHASE_DURATION) / PHASE_DURATION;
-    
+
     // Get the current sequence based on style
     KungFuPose* sequence;
     switch (gKungFuPattern) {
-        case 1: sequence = gCraneSequence; break;
-        case 2: sequence = gDragonSequence; break;  
-        case 3: sequence = gTigerSequence; break;
-        default: 
-            gKungFuAnimating = false;
-            return;
+    case 1: sequence = gCraneSequence; break;
+    case 2: sequence = gDragonSequence; break;
+    case 3: sequence = gTigerSequence; break;
+    default:
+        gKungFuAnimating = false;
+        return;
     }
-    
+
     // Interpolate between current and next keyframe
     KungFuPose fromPose = sequence[currentPhase];
     KungFuPose toPose = sequence[(currentPhase + 1) % 4];
-    
+
     gCurrentPose = lerpPose(fromPose, toPose, phaseProgress);
-    
+
     // Update global pose for torso
     g_pose.torsoYaw = gCurrentPose.torsoYaw;
-    g_pose.torsoPitch = gCurrentPose.torsoPitch;  
+    g_pose.torsoPitch = gCurrentPose.torsoPitch;
     g_pose.torsoRoll = gCurrentPose.torsoRoll;
 }
 
@@ -2172,7 +2157,7 @@ void startKungFuAnimation(int style) {
         g_pose.torsoRoll = 0.0f;
         return;
     }
-    
+
     gKungFuPattern = style;
     gKungFuAnimating = true;
     gKungFuAnimationTime = 0.0f;
@@ -2263,8 +2248,8 @@ void animateLegVertices(float hipAngle, float kneeAngle, bool mirror) {
     float hipRad = hipAngle * (float)M_PI / 180.0f;
     float kneeRad = kneeAngle * (float)M_PI / 180.0f;
 
-    float cosHip = cos(hipRad), sinHip = sin(hipRad);
-    float cosKnee = cos(kneeRad), sinKnee = sin(kneeRad);
+    float cosHip = cosf(hipRad), sinHip = sinf(hipRad); // Use sinf/cosf
+    float cosKnee = cosf(kneeRad), sinKnee = sinf(kneeRad); // Use sinf/cosf
 
     const float kneeY = 4.5f, kneeZ = 0.2f;
     const float hipY = 8.5f, hipZ = -0.2f;
@@ -2340,16 +2325,16 @@ void drawMulanEyes() {
     const float eyeY = headR * 0.2f; // Position relative to head center
     const float eyeZ = headR * 0.95f; // Moved forward to face surface
     const float eyeSpacing = 0.1f; // Slightly wider spacing
-    
+
     // Apply eye scaling
     glPushMatrix();
     glTranslatef(0.0f, eyeY, eyeZ); // Move to eye level
     glScalef(EYE_SCALE, EYE_SCALE, 1.0f); // Scale eyes
     glTranslatef(0.0f, -eyeY, -eyeZ); // Move back
-    
+
     // Eye whites (almond shaped for East Asian features)
     glColor3f(0.95f, 0.95f, 0.95f);
-    
+
     // Left eye white
     glBegin(GL_POLYGON);
     glVertex3f(-eyeSpacing - 0.04f, eyeY + 0.02f, eyeZ);
@@ -2359,7 +2344,7 @@ void drawMulanEyes() {
     glVertex3f(-eyeSpacing + 0.02f, eyeY - 0.02f, eyeZ);
     glVertex3f(-eyeSpacing - 0.02f, eyeY - 0.02f, eyeZ);
     glEnd();
-    
+
     // Right eye white
     glBegin(GL_POLYGON);
     glVertex3f(eyeSpacing - 0.04f, eyeY + 0.02f, eyeZ);
@@ -2369,7 +2354,7 @@ void drawMulanEyes() {
     glVertex3f(eyeSpacing + 0.02f, eyeY - 0.02f, eyeZ);
     glVertex3f(eyeSpacing - 0.02f, eyeY - 0.02f, eyeZ);
     glEnd();
-    
+
     // Dark brown irises
     glColor3f(0.2f, 0.1f, 0.05f);
     glBegin(GL_POLYGON);
@@ -2377,13 +2362,13 @@ void drawMulanEyes() {
         glVertex3f(-eyeSpacing + 0.025f * cos(a), eyeY + 0.025f * sin(a), eyeZ + 0.001f);
     }
     glEnd();
-    
+
     glBegin(GL_POLYGON);
     for (float a = 0; a < 6.28f; a += 0.3f) {
         glVertex3f(eyeSpacing + 0.025f * cos(a), eyeY + 0.025f * sin(a), eyeZ + 0.001f);
     }
     glEnd();
-    
+
     // Black pupils
     glColor3f(0.0f, 0.0f, 0.0f);
     glBegin(GL_POLYGON);
@@ -2391,13 +2376,13 @@ void drawMulanEyes() {
         glVertex3f(-eyeSpacing + 0.012f * cos(a), eyeY + 0.012f * sin(a), eyeZ + 0.002f);
     }
     glEnd();
-    
+
     glBegin(GL_POLYGON);
     for (float a = 0; a < 6.28f; a += 0.5f) {
         glVertex3f(eyeSpacing + 0.012f * cos(a), eyeY + 0.012f * sin(a), eyeZ + 0.002f);
     }
     glEnd();
-    
+
     // Eye highlights
     glColor3f(1.0f, 1.0f, 1.0f);
     glBegin(GL_POLYGON);
@@ -2405,13 +2390,13 @@ void drawMulanEyes() {
         glVertex3f(-eyeSpacing - 0.008f + 0.004f * cos(a), eyeY + 0.008f + 0.004f * sin(a), eyeZ + 0.003f);
     }
     glEnd();
-    
+
     glBegin(GL_POLYGON);
     for (float a = 0; a < 6.28f; a += 1.0f) {
         glVertex3f(eyeSpacing - 0.008f + 0.004f * cos(a), eyeY + 0.008f + 0.004f * sin(a), eyeZ + 0.003f);
     }
     glEnd();
-    
+
     glPopMatrix(); // End eye scaling
 }
 
@@ -2420,11 +2405,11 @@ void drawMulanEyebrows() {
     const float browY = headR * 0.32f; // Position relative to head center
     const float browZ = headR * 0.92f; // Moved forward to face surface
     const float eyeSpacing = 0.1f; // Match eye spacing
-    
+
     // Dark brown eyebrows
     glColor3f(0.15f, 0.1f, 0.05f);
     glLineWidth(3.0f * EYEBROW_SCALE); // Scale eyebrow thickness
-    
+
     // Left eyebrow
     glBegin(GL_LINE_STRIP);
     glVertex3f(-eyeSpacing - 0.04f, browY, browZ);
@@ -2433,7 +2418,7 @@ void drawMulanEyebrows() {
     glVertex3f(-eyeSpacing + 0.02f, browY + 0.012f, browZ);
     glVertex3f(-eyeSpacing + 0.04f, browY + 0.005f, browZ);
     glEnd();
-    
+
     // Right eyebrow
     glBegin(GL_LINE_STRIP);
     glVertex3f(eyeSpacing - 0.04f, browY + 0.005f, browZ);
@@ -2442,7 +2427,7 @@ void drawMulanEyebrows() {
     glVertex3f(eyeSpacing + 0.02f, browY + 0.015f, browZ);
     glVertex3f(eyeSpacing + 0.04f, browY, browZ);
     glEnd();
-    
+
     glLineWidth(1.0f);
 }
 
@@ -2450,30 +2435,30 @@ void drawMulanNose() {
     const float headR = HEAD_RADIUS;
     const float noseY = -headR * 0.02f; // Position relative to head center
     const float noseZ = headR * 0.98f; // Moved forward to face surface
-    
+
     // Apply nose scaling
     glPushMatrix();
     glTranslatef(0.0f, noseY, noseZ); // Move to nose center
     glScalef(NOSE_SCALE, NOSE_SCALE, NOSE_SCALE); // Scale nose
     glTranslatef(0.0f, -noseY, -noseZ); // Move back
-    
+
     // Nose bridge (subtle for East Asian features)
     glColor3f(0.85f, 0.65f, 0.55f); // Slightly darker than skin
     glLineWidth(2.0f * NOSE_SCALE); // Scale line width
-    
+
     glBegin(GL_LINE_STRIP);
     glVertex3f(0.0f, noseY + 0.03f, noseZ);
     glVertex3f(0.0f, noseY, noseZ + 0.01f);
     glVertex3f(0.0f, noseY - 0.01f, noseZ);
     glEnd();
-    
+
     // Nostrils
     glColor3f(0.3f, 0.2f, 0.15f);
     glBegin(GL_POINTS);
     glVertex3f(-0.008f, noseY - 0.015f, noseZ);
     glVertex3f(0.008f, noseY - 0.015f, noseZ);
     glEnd();
-    
+
     glLineWidth(1.0f);
     glPopMatrix(); // End nose scaling
 }
@@ -2482,17 +2467,17 @@ void drawMulanMouth() {
     const float headR = HEAD_RADIUS;
     const float mouthY = -headR * 0.3f; // Position relative to head center
     const float mouthZ = headR * 0.95f; // Moved forward to face surface
-    
+
     // Apply mouth scaling
     glPushMatrix();
     glTranslatef(0.0f, mouthY, mouthZ); // Move to mouth center
     glScalef(MOUTH_SCALE, MOUTH_SCALE, 1.0f); // Scale mouth
     glTranslatef(0.0f, -mouthY, -mouthZ); // Move back
-    
+
     // Natural lip color
     glColor3f(0.8f, 0.4f, 0.4f);
     glLineWidth(2.5f * MOUTH_SCALE); // Scale line width
-    
+
     // Upper lip curve
     glBegin(GL_LINE_STRIP);
     glVertex3f(-0.025f, mouthY + 0.005f, mouthZ);
@@ -2501,7 +2486,7 @@ void drawMulanMouth() {
     glVertex3f(0.012f, mouthY + 0.012f, mouthZ);
     glVertex3f(0.025f, mouthY + 0.005f, mouthZ);
     glEnd();
-    
+
     // Lower lip
     glBegin(GL_LINE_STRIP);
     glVertex3f(-0.025f, mouthY + 0.005f, mouthZ);
@@ -2510,7 +2495,7 @@ void drawMulanMouth() {
     glVertex3f(0.012f, mouthY - 0.005f, mouthZ);
     glVertex3f(0.025f, mouthY + 0.005f, mouthZ);
     glEnd();
-    
+
     glLineWidth(1.0f);
     glPopMatrix(); // End mouth scaling
 }
@@ -2518,33 +2503,33 @@ void drawMulanMouth() {
 void drawMulanHair() {
     const float headR = HEAD_RADIUS;
     const int segments = 32;
-    
+
     // Apply hair scaling for volume
     glPushMatrix();
     glTranslatef(0.0f, headR * 0.5f, 0.0f); // Move to hair center
     glScalef(HAIR_SCALE, HAIR_SCALE, HAIR_SCALE); // Scale hair volume
     glTranslatef(0.0f, -headR * 0.5f, 0.0f); // Move back
-    
+
     glColor3f(0.05f, 0.05f, 0.1f); // Dark black hair
-    
+
     // --- Part 1: Voluminous Hair Cap ---
     // A slightly larger cap to give the hair body.
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < segments; i++) {
         float angle1 = (float)i / segments * 2.0f * PI;
         float angle2 = (float)(i + 1) / segments * 2.0f * PI;
-        
+
         float capRadius = headR * 1.15f; // Increased to avoid clipping
         float x1 = capRadius * cos(angle1);
         float z1 = capRadius * sin(angle1);
         float x2 = capRadius * cos(angle2);
         float z2 = capRadius * sin(angle2);
-        
+
         // A high center point for volume
-        Vec3f top_center = {0.0f, headR * 1.25f, 0.0f}; // Slightly higher
+        Vec3f top_center = { 0.0f, headR * 1.25f, 0.0f }; // Slightly higher
         // The edge of the cap - positioned outward from head surface
-        Vec3f edge_v1 = {x1, headR * 0.75f, z1};
-        Vec3f edge_v2 = {x2, headR * 0.75f, z2};
+        Vec3f edge_v1 = { x1, headR * 0.75f, z1 };
+        Vec3f edge_v2 = { x2, headR * 0.75f, z2 };
 
         // Normal for the triangle
         Vec3f n = normalize(cross(sub(edge_v1, top_center), sub(edge_v2, top_center)));
@@ -2555,7 +2540,7 @@ void drawMulanHair() {
         glVertex3f(edge_v2.x, edge_v2.y, edge_v2.z);
     }
     glEnd();
-    
+
     // --- Part 2: Main Bob Shape (Sides & Back) ---
     // Chin-length hair with an inward curve.
     glBegin(GL_QUADS);
@@ -2579,7 +2564,7 @@ void drawMulanHair() {
         // Bottom of the strand with different lengths
         float bottomRadius = headR * 0.95f; // Less inward curve to avoid clipping
         float bottomY = -headR * 0.5f; // Default chin-length
-        
+
         // Make sides very short (undercut style)
         if (fabsf(cos(angle1)) > 0.5f) { // Left and right sides
             bottomY = headR * 0.1f; // Very short - just below ear level
@@ -2596,10 +2581,10 @@ void drawMulanHair() {
         float x2_bot = bottomRadius * cos(angle2);
         float z2_bot = bottomRadius * sin(angle2);
 
-        Vec3f v_top1 = {x1_top, topY, z1_top};
-        Vec3f v_top2 = {x2_top, topY, z2_top};
-        Vec3f v_bot1 = {x1_bot, bottomY, z1_bot};
-        Vec3f v_bot2 = {x2_bot, bottomY, z2_bot};
+        Vec3f v_top1 = { x1_top, topY, z1_top };
+        Vec3f v_top2 = { x2_top, topY, z2_top };
+        Vec3f v_bot1 = { x1_bot, bottomY, z1_bot };
+        Vec3f v_bot2 = { x2_bot, bottomY, z2_bot };
 
         Vec3f n = normalize(cross(sub(v_top2, v_top1), sub(v_bot1, v_top1)));
         glNormal3f(n.x, n.y, n.z);
@@ -2620,7 +2605,7 @@ void drawMulanHair() {
 
         // Only draw bangs in the front center section - no side bangs
         if (sin(angle1) < 0.4f || fabsf(cos(angle1)) > 0.6f) {
-             continue;
+            continue;
         }
 
         // Top of bangs - positioned outward from head
@@ -2639,11 +2624,11 @@ void drawMulanHair() {
         float x2_bot = bottomRadius * cos(angle2);
         float z2_bot = bottomRadius * sin(angle2);
 
-        Vec3f v_top1 = {x1_top, topY, z1_top};
-        Vec3f v_top2 = {x2_top, topY, z2_top};
-        Vec3f v_bot1 = {x1_bot, bottomY, z1_bot};
-        Vec3f v_bot2 = {x2_bot, bottomY, z2_bot};
-        
+        Vec3f v_top1 = { x1_top, topY, z1_top };
+        Vec3f v_top2 = { x2_top, topY, z2_top };
+        Vec3f v_bot1 = { x1_bot, bottomY, z1_bot };
+        Vec3f v_bot2 = { x2_bot, bottomY, z2_bot };
+
         Vec3f n = normalize(cross(sub(v_top2, v_top1), sub(v_bot1, v_top1)));
         glNormal3f(n.x, n.y, n.z);
 
@@ -2653,7 +2638,7 @@ void drawMulanHair() {
         glVertex3f(v_bot1.x, v_bot1.y, v_bot1.z);
     }
     glEnd();
-    
+
     glPopMatrix(); // End hair scaling
 }
 
@@ -2673,70 +2658,74 @@ void drawCustomFaceShape() {
     const float faceDepth = HEAD_RADIUS * 0.9f;
     const int segments = HEAD_SEGMENTS; // Horizontal segments
     const int layers = HEAD_LAYERS;     // Vertical layers
-    
+
     glBegin(GL_TRIANGLES);
-    
+
     for (int layer = 0; layer < layers - 1; layer++) {
         float y1 = ((float)layer / (layers - 1)) * 2.0f - 1.0f; // -1 to 1
         float y2 = ((float)(layer + 1) / (layers - 1)) * 2.0f - 1.0f;
-        
+
         // Convert to actual Y coordinates
         float actualY1 = y1 * faceHeight * 0.5f;
         float actualY2 = y2 * faceHeight * 0.5f;
-        
+
         // Calculate face width scaling based on height for smooth curved jaw
         float widthScale1, widthScale2;
-        
+
         if (y1 < JAW_TRANSITION) { // Lower jaw area - create smooth curved shape
             float jawFactor = (y1 + 1.0f) / (1.0f + JAW_TRANSITION); // 0 at bottom, 1 at jaw transition line
             // Use configurable curvature for smooth jaw shape
             float curveValue = powf(jawFactor, 1.0f / JAW_CURVATURE);
             widthScale1 = JAW_WIDTH_MIN + (1.0f - JAW_WIDTH_MIN) * curveValue;
-        } else if (y1 < 0.4f) { // Mid face - full width
+        }
+        else if (y1 < 0.4f) { // Mid face - full width
             widthScale1 = 1.0f;
-        } else { // Upper face/forehead
+        }
+        else { // Upper face/forehead
             float foreheadFactor = (y1 - 0.4f) / 0.6f;
             widthScale1 = 1.0f - 0.1f * foreheadFactor; // Slightly narrower forehead
         }
-        
+
         if (y2 < JAW_TRANSITION) { // Lower jaw area - create smooth curved shape
             float jawFactor = (y2 + 1.0f) / (1.0f + JAW_TRANSITION); // 0 at bottom, 1 at jaw transition line
             // Use configurable curvature for smooth jaw shape
             float curveValue = powf(jawFactor, 1.0f / JAW_CURVATURE);
             widthScale2 = JAW_WIDTH_MIN + (1.0f - JAW_WIDTH_MIN) * curveValue;
-        } else if (y2 < 0.4f) { // Mid face - full width
+        }
+        else if (y2 < 0.4f) { // Mid face - full width
             widthScale2 = 1.0f;
-        } else { // Upper face/forehead
+        }
+        else { // Upper face/forehead
             float foreheadFactor = (y2 - 0.4f) / 0.6f;
             widthScale2 = 1.0f - 0.1f * foreheadFactor; // Slightly narrower forehead
         }
-        
+
         // Calculate depth scaling for more natural face shape
         float depthScale1 = 1.0f - 0.1f * fabsf(y1); // Less flattening for better proportions
         float depthScale2 = 1.0f - 0.1f * fabsf(y2);
-        
+
         for (int seg = 0; seg < segments; seg++) {
             float angle1 = (float)seg / segments * 2.0f * PI;
             float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
-            
+
             // Calculate vertex positions for current layer
             float x1_1 = cos(angle1) * faceWidth * widthScale1;
             float z1_1 = sin(angle1) * faceDepth * depthScale1;
             float x1_2 = cos(angle2) * faceWidth * widthScale1;
             float z1_2 = sin(angle2) * faceDepth * depthScale1;
-            
+
             // Calculate vertex positions for next layer
             float x2_1 = cos(angle1) * faceWidth * widthScale2;
             float z2_1 = sin(angle1) * faceDepth * depthScale2;
             float x2_2 = cos(angle2) * faceWidth * widthScale2;
             float z2_2 = sin(angle2) * faceDepth * depthScale2;
-            
+
             // Calculate normals for smooth shading
-            Vec3f normal1 = normalize({x1_1, actualY1 * 0.3f, z1_1});
-            Vec3f normal2 = normalize({x1_2, actualY1 * 0.3f, z1_2});
-            Vec3f normal3 = normalize({x2_1, actualY2 * 0.3f, z2_1});
-            Vec3f normal4 = normalize({x2_2, actualY2 * 0.3f, z2_2});
-            
+            Vec3f normal1 = normalize({ x1_1, actualY1 * 0.3f, z1_1 });
+            Vec3f normal2 = normalize({ x1_2, actualY1 * 0.3f, z1_2 });
+            Vec3f normal3 = normalize({ x2_1, actualY2 * 0.3f, z2_1 });
+            Vec3f normal4 = normalize({ x2_2, actualY2 * 0.3f, z2_2 });
+
             // First triangle
             glNormal3f(normal1.x, normal1.y, normal1.z);
             glVertex3f(x1_1, actualY1, z1_1);
@@ -2744,7 +2733,7 @@ void drawCustomFaceShape() {
             glVertex3f(x2_1, actualY2, z2_1);
             glNormal3f(normal2.x, normal2.y, normal2.z);
             glVertex3f(x1_2, actualY1, z1_2);
-            
+
             // Second triangle
             glNormal3f(normal2.x, normal2.y, normal2.z);
             glVertex3f(x1_2, actualY1, z1_2);
@@ -2754,110 +2743,110 @@ void drawCustomFaceShape() {
             glVertex3f(x2_2, actualY2, z2_2);
         }
     }
-    
+
     // Cap the top and bottom
     // Top cap
     for (int seg = 0; seg < segments; seg++) {
         float angle1 = (float)seg / segments * 2.0f * PI;
         float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
-        
+
         float topWidthScale = 0.9f; // Slightly narrower at top
         float x1 = cos(angle1) * faceWidth * topWidthScale;
         float z1 = sin(angle1) * faceDepth * 0.8f;
         float x2 = cos(angle2) * faceWidth * topWidthScale;
         float z2 = sin(angle2) * faceDepth * 0.8f;
-        
+
         glNormal3f(0, 1, 0);
         glVertex3f(0, faceHeight * 0.5f, 0);
         glVertex3f(x1, faceHeight * 0.5f, z1);
         glVertex3f(x2, faceHeight * 0.5f, z2);
     }
-    
+
     // Bottom cap (chin area)
     for (int seg = 0; seg < segments; seg++) {
         float angle1 = (float)seg / segments * 2.0f * PI;
         float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
-        
+
         float bottomWidthScale = JAW_WIDTH_MIN; // Use configurable jaw width at chin
         float x1 = cos(angle1) * faceWidth * bottomWidthScale;
         float z1 = sin(angle1) * faceDepth * 0.6f;
         float x2 = cos(angle2) * faceWidth * bottomWidthScale;
         float z2 = sin(angle2) * faceDepth * 0.6f;
-        
+
         glNormal3f(0, -1, 0);
         glVertex3f(0, -faceHeight * 0.5f, 0);
         glVertex3f(x2, -faceHeight * 0.5f, z2);
         glVertex3f(x1, -faceHeight * 0.5f, z1);
     }
-    
+
     glEnd();
 }
 
 void drawMulanHead() {
     glPushMatrix();
-    
+
     // Position head to sit directly on top of neck sphere at Y19 level
     // Head bottom should overlap with neck top for seamless connection
     glTranslatef(0.0f, Y19 + HEAD_RADIUS * 0.6f, 0.0f); // Reduced offset for better overlap
-    
+
     // Mulan's skin tone (East Asian complexion)
     glColor3f(0.92f, 0.76f, 0.65f);
-    
+
     // Draw custom U-shaped face instead of sphere
     drawCustomFaceShape();
-    
+
     // Add head bottom cap to seal connection with neck
     const float headBottomRadius = HEAD_RADIUS * 0.3f; // Smaller radius for neck connection
     const float headBottomY = -HEAD_RADIUS * 0.7f; // Bottom of head
-    
+
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < TORSO_SEGMENTS; i++) {
         float angle1 = (float)i / TORSO_SEGMENTS * 2.0f * PI;
         float angle2 = (float)(i + 1) / TORSO_SEGMENTS * 2.0f * PI;
-        
+
         // Create smooth bottom surface
-        Vec3f center = {0.0f, headBottomY, 0.0f};
-        Vec3f v1 = {headBottomRadius * cos(angle1), headBottomY, headBottomRadius * sin(angle1)};
-        Vec3f v2 = {headBottomRadius * cos(angle2), headBottomY, headBottomRadius * sin(angle2)};
-        
+        Vec3f center = { 0.0f, headBottomY, 0.0f };
+        Vec3f v1 = { headBottomRadius * cos(angle1), headBottomY, headBottomRadius * sin(angle1) };
+        Vec3f v2 = { headBottomRadius * cos(angle2), headBottomY, headBottomRadius * sin(angle2) };
+
         // Normal pointing downward (since this is the bottom of head)
         glNormal3f(0, -1, 0);
-        
+
         // Triangle: center -> v2 -> v1 (clockwise from below for correct winding)
         glVertex3f(center.x, center.y, center.z);
         glVertex3f(v2.x, v2.y, v2.z);
         glVertex3f(v1.x, v1.y, v1.z);
     }
     glEnd();
-    
+
     // Draw detailed facial features
     drawMulanFace();
-    
+
     glPopMatrix();
 }
 void drawTorso() {
-    // Draw main torso body (clothing) with smooth shading
     glColor3f(0.2f, 0.4f, 0.8f);
-    glShadeModel(GL_SMOOTH); // Enable smooth shading for seamless appearance
+    glShadeModel(GL_SMOOTH);
     glBegin(GL_TRIANGLES);
-    drawCurvedBand(R0, Y0, R1, Y1);
-    drawCurvedBand(R1, Y1, R2, Y2);
-    drawCurvedBand(R2, Y2, R3, Y3);
-    drawCurvedBand(R3, Y3, R4, Y4);
-    drawCurvedBand(R4, Y4, R5, Y5);
-    drawCurvedBand(R5, Y5, R6, Y6);
-    drawCurvedBand(R6, Y6, R7, Y7);
-    drawCurvedBand(R7, Y7, R8, Y8);
-    drawCurvedBand(R8, Y8, R9, Y9);
-    drawCurvedBand(R9, Y9, R10, Y10);
-    drawCurvedBand(R10, Y10, R11, Y11);
-    drawCurvedBand(R11, Y11, R12, Y12);
-    drawCurvedBand(R12, Y12, R13, Y13);
-    drawCurvedBand(R13, Y13, R14, Y14);
-    drawCurvedBand(R14, Y14, R15, Y15);
-    drawCurvedBand(R15, Y15, R16, Y16); // Extended torso to include shoulder transition
+    // CORRECTED: Pass segCos and segSin to the function
+    drawCurvedBand(R0, Y0, R1, Y1, segCos, segSin);
+    drawCurvedBand(R1, Y1, R2, Y2, segCos, segSin);
+    drawCurvedBand(R2, Y2, R3, Y3, segCos, segSin);
+    drawCurvedBand(R3, Y3, R4, Y4, segCos, segSin);
+    drawCurvedBand(R4, Y4, R5, Y5, segCos, segSin);
+    drawCurvedBand(R5, Y5, R6, Y6, segCos, segSin);
+    drawCurvedBand(R6, Y6, R7, Y7, segCos, segSin);
+    drawCurvedBand(R7, Y7, R8, Y8, segCos, segSin);
+    drawCurvedBand(R8, Y8, R9, Y9, segCos, segSin);
+    drawCurvedBand(R9, Y9, R10, Y10, segCos, segSin);
+    drawCurvedBand(R10, Y10, R11, Y11, segCos, segSin);
+    drawCurvedBand(R11, Y11, R12, Y12, segCos, segSin);
+    drawCurvedBand(R12, Y12, R13, Y13, segCos, segSin);
+    drawCurvedBand(R13, Y13, R14, Y14, segCos, segSin);
+    drawCurvedBand(R14, Y14, R15, Y15, segCos, segSin);
+    drawCurvedBand(R15, Y15, R16, Y16, segCos, segSin);
     glEnd();
-    
+
     // Add bottom cap to close the torso (prevent seeing through from below)
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < 16; ++i) {
@@ -2865,26 +2854,26 @@ void drawTorso() {
         float sA = segSin[i];
         float cB = segCos[(i + 1) % 16];
         float sB = segSin[(i + 1) % 16];
-        
+
         // Create bottom surface at Y0 level with R0 radius
-        Vec3f center = {0.0f, Y0, 0.0f};
-        Vec3f v1 = {R0 * cA, Y0, R0 * sA};
-        Vec3f v2 = {R0 * cB, Y0, R0 * sB};
-        
+        Vec3f center = { 0.0f, Y0, 0.0f };
+        Vec3f v1 = { R0 * cA, Y0, R0 * sA };
+        Vec3f v2 = { R0 * cB, Y0, R0 * sB };
+
         // Apply same curvature as torso
         if (sA < 0) v1.z *= 0.5f; // Back curvature
         if (sB < 0) v2.z *= 0.5f; // Back curvature
-        
+
         // Normal pointing downward (since this is the bottom)
         glNormal3f(0, -1, 0);
-        
+
         // Triangle: center -> v1 -> v2 (clockwise from below)
         glVertex3f(center.x, center.y, center.z);
         glVertex3f(v2.x, v2.y, v2.z); // Reversed order for correct winding
         glVertex3f(v1.x, v1.y, v1.z);
     }
     glEnd();
-    
+
     glShadeModel(GL_FLAT); // Reset to default shading
 
     // Draw skin areas (shoulder slope and neck) with smooth shading - feminine curves
@@ -2892,11 +2881,11 @@ void drawTorso() {
     glColor3f(0.9f, 0.7f, 0.6f);
     glShadeModel(GL_SMOOTH); // Smooth shading for seamless shoulder-neck transition
     glBegin(GL_TRIANGLES);
-    drawCurvedBand(R16, Y16, R17, Y17); // Upper shoulder slope - elegant feminine curve
-    drawCurvedBand(R17, Y17, R18, Y18); // Lower shoulder slope to neck base
-    drawCurvedBand(R18, Y18, R19, Y19); // Neck - slim and graceful, centered on torso
+    drawCurvedBand(R16, Y16, R17, Y17, segCos, segSin); // Upper shoulder slope - elegant feminine curve
+    drawCurvedBand(R17, Y17, R18, Y18, segCos, segSin); // Lower shoulder slope to neck base
+    drawCurvedBand(R18, Y18, R19, Y19, segCos, segSin); // Neck - slim and graceful, centered on torso
     glEnd();
-    
+
     // Add neck top cap to close the neck (smooth transition to head)
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < TORSO_SEGMENTS; ++i) {
@@ -2904,22 +2893,22 @@ void drawTorso() {
         float sA = segSin[i];
         float cB = segCos[(i + 1) % TORSO_SEGMENTS];
         float sB = segSin[(i + 1) % TORSO_SEGMENTS];
-        
+
         // Create top surface at Y19 level with R19 radius
-        Vec3f center = {0.0f, Y19, 0.0f};
-        Vec3f v1 = {R19 * cA, Y19, R19 * sA};
-        Vec3f v2 = {R19 * cB, Y19, R19 * sB};
-        
+        Vec3f center = { 0.0f, Y19, 0.0f };
+        Vec3f v1 = { R19 * cA, Y19, R19 * sA };
+        Vec3f v2 = { R19 * cB, Y19, R19 * sB };
+
         // Normal pointing upward (since this is the top of neck)
         glNormal3f(0, 1, 0);
-        
+
         // Triangle: center -> v1 -> v2 (counter-clockwise from above)
         glVertex3f(center.x, center.y, center.z);
         glVertex3f(v1.x, v1.y, v1.z);
         glVertex3f(v2.x, v2.y, v2.z);
     }
     glEnd();
-    
+
     glShadeModel(GL_FLAT); // Reset to default shading
 
     // Draw internal ball-and-socket joints (hidden inside torso and arms)
@@ -2935,17 +2924,17 @@ void drawInternalShoulderJoints() {
     const float jointHeight = Y14; // Position lowered to R14 level for better integration
     const float ballRadius = 0.08f;
     const float socketRadius = 0.10f;
-    
+
     // --- Left Shoulder Ball (inside blue torso R14) ---
     glPushMatrix();
     glColor3f(0.2f, 0.4f, 0.8f); // Match blue torso color
     glTranslatef(-shoulderOffsetTorso, jointHeight, 0.1f); // Positioned at blue torso boundary
-    
+
     // Clip ball to only show inside torso (hide external part)
     GLdouble clipPlaneLeft[] = { -1.0, 0.0, 0.0, -shoulderOffsetTorso + 0.1f };
     glClipPlane(GL_CLIP_PLANE0, clipPlaneLeft);
     glEnable(GL_CLIP_PLANE0);
-    
+
     // Draw ball hemisphere (only internal part visible)
     GLUquadric* ballQuadric = gluNewQuadric();
     if (ballQuadric) {
@@ -2954,17 +2943,17 @@ void drawInternalShoulderJoints() {
     }
     glDisable(GL_CLIP_PLANE0);
     glPopMatrix();
-    
+
     // --- Right Shoulder Ball (inside blue torso R14) ---
     glPushMatrix();
     glColor3f(0.2f, 0.4f, 0.8f); // Match blue torso color
     glTranslatef(shoulderOffsetTorso, jointHeight, 0.1f); // Positioned at blue torso boundary
-    
+
     // Clip ball to only show inside torso
     GLdouble clipPlaneRight[] = { 1.0, 0.0, 0.0, -shoulderOffsetTorso + 0.1f };
     glClipPlane(GL_CLIP_PLANE0, clipPlaneRight);
     glEnable(GL_CLIP_PLANE0);
-    
+
     if (ballQuadric) {
         ballQuadric = gluNewQuadric();
         gluSphere(ballQuadric, ballRadius, 16, 16);
@@ -2982,16 +2971,16 @@ void drawShoulderSocketsOLD() {
     const float shoulderRadius = 0.12f;     // Smaller radius to blend better
     const float shoulderHeight = Y15;       // Position at torso shoulder level
     const float shoulderOffset = R14 * 0.85f; // Slightly inward for better integration
-    const int slices = 12;                  
+    const int slices = 12;
     const int stacks = 4;                   // Fewer stacks for flatter integration
 
     // --- Draw Left Shoulder Socket (clipped to blend with torso) ---
     glPushMatrix();
     glTranslatef(-shoulderOffset, shoulderHeight, 0.0f);
-    
+
     // Clip to blend seamlessly with torso
-    GLdouble clipPlane[] = { 1.0, 0.0, 0.0, shoulderOffset * 0.3f }; 
-    glClipPlane(GL_CLIP_PLANE0, clipPlane); 
+    GLdouble clipPlane[] = { 1.0, 0.0, 0.0, shoulderOffset * 0.3f };
+    glClipPlane(GL_CLIP_PLANE0, clipPlane);
     glEnable(GL_CLIP_PLANE0);
 
     glBegin(GL_TRIANGLES);
@@ -3039,10 +3028,10 @@ void drawShoulderSocketsOLD() {
     // --- Draw Right Shoulder Socket (mirrored and clipped) ---
     glPushMatrix();
     glTranslatef(shoulderOffset, shoulderHeight, 0.0f);
-    
+
     // Clip to blend seamlessly with torso (mirrored)
-    GLdouble clipPlaneRight[] = { -1.0, 0.0, 0.0, shoulderOffset * 0.3f }; 
-    glClipPlane(GL_CLIP_PLANE0, clipPlaneRight); 
+    GLdouble clipPlaneRight[] = { -1.0, 0.0, 0.0, shoulderOffset * 0.3f };
+    glClipPlane(GL_CLIP_PLANE0, clipPlaneRight);
     glEnable(GL_CLIP_PLANE0);
 
     glBegin(GL_TRIANGLES);
@@ -3091,13 +3080,13 @@ void drawShoulderSocketsOLD() {
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     // Use animated kung fu poses if animation is active
     float leftShoulderPitch, rightShoulderPitch;
-    float leftShoulderYaw, rightShoulderYaw; 
+    float leftShoulderYaw, rightShoulderYaw;
     float leftShoulderRoll, rightShoulderRoll;
     float leftElbowBend = 20.0f, rightElbowBend = 20.0f;
     float leftWristPitch = 0.0f, rightWristPitch = 0.0f;
     float leftWristYaw = 0.0f, rightWristYaw = 0.0f;
     float leftWristRoll = 0.0f, rightWristRoll = 0.0f;
-    
+
     if (gKungFuAnimating) {
         // Use animated pose values
         leftShoulderPitch = gCurrentPose.leftShoulderPitch;
@@ -3112,18 +3101,19 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         rightElbowBend = gCurrentPose.rightElbowBend;
         leftWristPitch = gCurrentPose.leftWristPitch;
         rightWristPitch = gCurrentPose.rightWristPitch;
-        
+
         // Apply realistic hand forms during animation while preserving wrist connection
         Vec3 leftWristBackup = g_HandJoints[0].position;
         Vec3 rightWristBackup = g_HandJoints2[0].position;
-        
+
         setHandForm(g_HandJoints, gCurrentPose.leftHandForm);
         setHandForm(g_HandJoints2, gCurrentPose.rightHandForm);
-        
+
         // Restore wrist positions to maintain arm connection
         g_HandJoints[0].position = leftWristBackup;
         g_HandJoints2[0].position = rightWristBackup;
-    } else {
+    }
+    else {
         // Use default poses and restore original hand positions
         leftShoulderPitch = 90.0f + leftArmAngle;
         rightShoulderPitch = 90.0f + rightArmAngle;
@@ -3131,43 +3121,39 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         rightShoulderYaw = 20.0f;
         leftShoulderRoll = -40.0f;
         rightShoulderRoll = 40.0f;
-        
+
         // Lift arm higher when holding sword
-        if (gSwordVisible && !gSwordInRightHand) {
-            leftShoulderPitch += 30.0f; // Lift left arm 30 degrees higher
+        if ((gSwordVisible || gSpearVisible) && !gWeaponInRightHand) {
+            leftShoulderPitch += 30.0f;
         }
-        if (gSwordVisible && gSwordInRightHand) {
-            rightShoulderPitch += 30.0f; // Lift right arm 30 degrees higher
+        if ((gSwordVisible || gSpearVisible) && gWeaponInRightHand) {
+            rightShoulderPitch += 30.0f;
         }
-        
+
         // Restore original hand joint positions when not animating (but preserve fist animation)
         // Also check if we need to make a fist for holding the sword
         bool needLeftFist = gSwordVisible && !gSwordInRightHand;
         bool needRightFist = gSwordVisible && gSwordInRightHand;
-        
-        if (!gFistAnimationActive && !gIsFist && !needLeftFist && !needRightFist) {
-            if (g_OriginalHandJoints.size() == g_HandJoints.size()) {
-                g_HandJoints = g_OriginalHandJoints;
-            }
-            if (g_OriginalHandJoints2.size() == g_HandJoints2.size()) {
-                g_HandJoints2 = g_OriginalHandJoints2;
-            }
+        bool needLeftSpearGrip = gSpearVisible && !gWeaponInRightHand;
+        bool needRightSpearGrip = gSpearVisible && gWeaponInRightHand;
+
+        if (!gFistAnimationActive && !gIsFist && !needLeftFist && !needRightFist && !needLeftSpearGrip && !needRightSpearGrip) {
+            if (g_OriginalHandJoints.size() == g_HandJoints.size()) g_HandJoints = g_OriginalHandJoints;
+            if (g_OriginalHandJoints2.size() == g_HandJoints2.size()) g_HandJoints2 = g_OriginalHandJoints2;
         }
-        
-        // Apply sword grip fist to the appropriate hand
-        if (needLeftFist) {
-            setHandForm(g_HandJoints, HAND_FIST);
-        }
-        if (needRightFist) {
-            setHandForm(g_HandJoints2, HAND_FIST);
-        }
+
+        if (needLeftFist) setHandForm(g_HandJoints, HAND_FIST);
+        if (needRightFist) setHandForm(g_HandJoints2, HAND_FIST);
+        if (needLeftSpearGrip) setHandForm(g_HandJoints, HAND_GRIP_SPEAR);
+        if (needRightSpearGrip) setHandForm(g_HandJoints2, HAND_GRIP_SPEAR);
     }
 
     // Set material properties for concrete or skin
     if (gConcreteHands) {
         glDisable(GL_TEXTURE_2D);
         glColor3f(0.6f, 0.6f, 0.65f); // Concrete gray
-    } else {
+    }
+    else {
         // Enable texturing if available
         if (g_TextureEnabled && g_HandTexture != 0) {
             glEnable(GL_TEXTURE_2D);
@@ -3193,12 +3179,12 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glPushMatrix();
         glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
         glTranslatef(0.0f, 0.0f, -0.05f); // Socket position aligned with shoulder band connection
-        
+
         // Clip socket to only show inside arm (hide external part)
         GLdouble clipPlaneArmLeft[] = { 1.0, 0.0, 0.0, 0.1f };
         glClipPlane(GL_CLIP_PLANE1, clipPlaneArmLeft);
         glEnable(GL_CLIP_PLANE1);
-        
+
         // Draw internal socket cavity
         GLUquadric* socketQuadric = gluNewQuadric();
         if (socketQuadric) {
@@ -3209,13 +3195,27 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glDisable(GL_CLIP_PLANE1);
         glPopMatrix();
 
+        if (gShieldVisible) {
+            glPushMatrix();
+            // Position relative to the elbow to attach to forearm
+            Vec3 elbowPos = g_ArmJoints[3].position;
+            glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
+			glTranslatef(-0.2f, 0.0f, 0.7f); // change position of shield
+            glRotatef(-80.0f, 0, 1, 0);
+            glRotatef(10.0f, 1, 0, 0);
+            glScalef(0.4f, 0.4f, 0.4f);
+            drawShield();
+            glPopMatrix();
+        }
+
         glPushMatrix();
         if (gConcreteHands) {
             // Draw concrete arm - more blocky/angular
             glColor3f(0.55f, 0.55f, 0.6f); // Slightly different concrete shade for arms
             glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f); // Slightly bigger for concrete look
             drawLowPolyArm(g_ArmJoints);
-        } else {
+        }
+        else {
             glScalef(ARM_SCALE * 1.0f, ARM_SCALE * 1.0f, ARM_SCALE * 1.0f); // Use full scale to eliminate gaps
             drawLowPolyArm(g_ArmJoints);
         }
@@ -3241,14 +3241,15 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         // Better connection to arm wrist - adjust gap based on sword grip
         if (gSwordVisible && !gSwordInRightHand) {
             glTranslatef(0.0f, 0.02f, -0.01f);  // Minimal gap for sword grip
-        } else {
+        }
+        else {
             glTranslatef(0.0f, 0.02f, -0.02f);  // Tighter connection when not holding sword
         }
         // Rotate left hand 180 degrees around Y-axis to make palm face forward
         glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
-        
+
         glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f); // Extended Z-scale for longer palm
-        
+
         // Apply fist for sword grip right before drawing left hand
         if (gSwordVisible && !gSwordInRightHand) {
             // Copy fist positions directly from g_FistHandJoints
@@ -3258,7 +3259,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
                 }
             }
         }
-        
+
         if (gConcreteHands) {
             // Draw concrete hands
             glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
@@ -3268,7 +3269,8 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             drawConcreteFinger(g_HandJoints, 9, 10, 11, 12);
             drawConcreteFinger(g_HandJoints, 13, 14, 15, 16);
             drawConcreteFinger(g_HandJoints, 17, 18, 19, 20);
-        } else {
+        }
+        else {
             // Draw skin hands
             if (g_TextureEnabled && g_HandTexture != 0) {
                 glEnable(GL_TEXTURE_2D);
@@ -3283,7 +3285,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
         }
         glPopMatrix();
-        
+
         // Draw sword in left hand if enabled
         if (gSwordVisible && !gSwordInRightHand) {
             glPushMatrix();
@@ -3312,12 +3314,12 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glPushMatrix();
         glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
         glTranslatef(0.0f, 0.0f, -0.05f); // Socket position aligned with shoulder band connection
-        
+
         // Clip socket to only show inside arm (hide external part)  
         GLdouble clipPlaneArmRight[] = { -1.0, 0.0, 0.0, 0.1f };
         glClipPlane(GL_CLIP_PLANE1, clipPlaneArmRight);
         glEnable(GL_CLIP_PLANE1);
-        
+
         // Draw internal socket cavity
         GLUquadric* socketQuadric = gluNewQuadric();
         if (socketQuadric) {
@@ -3334,7 +3336,8 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             glColor3f(0.55f, 0.55f, 0.6f); // Slightly different concrete shade for arms
             glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f); // Slightly bigger for concrete look
             drawLowPolyArm(g_ArmJoints2);
-        } else {
+        }
+        else {
             glScalef(ARM_SCALE * 1.0f, ARM_SCALE * 1.0f, ARM_SCALE * 1.0f); // Use full scale to eliminate gaps
             drawLowPolyArm(g_ArmJoints2);
         }
@@ -3352,6 +3355,15 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glRotatef(rightWristRoll, 0.0f, 0.0f, 1.0f);   // Use animated wrist roll
 
         // Add sword grip rotation to the wrist joint so arm stays connected
+        if (gSpearVisible && gWeaponInRightHand) {
+            glPushMatrix();
+            glTranslatef(0.0f, 0.05f, 0.1f); // Adjust grip position
+            glRotatef(80.0f, 1.0f, 0.0f, 0.0f); // Angle
+            glRotatef(-25.0f, 0.0f, 0.0f, 1.0f); // Tilt
+            glScalef(0.3f, 0.3f, 0.3f);
+            drawSpear();
+            glPopMatrix();
+        }
         if (gSwordVisible && gSwordInRightHand) {
             glRotatef(45.0f, 0.0f, 1.0f, 0.0f); // Rotate wrist 45 degrees for natural sword grip
         }
@@ -3360,14 +3372,15 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         // Better connection to arm wrist - adjust gap based on sword grip
         if (gSwordVisible && gSwordInRightHand) {
             glTranslatef(0.0f, 0.02f, -0.01f);  // Minimal gap for sword grip
-        } else {
+        }
+        else {
             glTranslatef(0.0f, 0.02f, -0.02f);  // Tighter connection when not holding sword
         }
         // Rotate right hand 180 degrees around Y-axis to make palm face forward
         glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
-        
+
         glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f); // Extended Z-scale for longer palm
-        
+
         // Apply fist for sword grip right before drawing right hand
         if (gSwordVisible && gSwordInRightHand) {
             // Copy fist positions directly from g_FistHandJoints2
@@ -3377,7 +3390,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
                 }
             }
         }
-        
+
         if (gConcreteHands) {
             // Draw concrete hands
             glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
@@ -3387,7 +3400,8 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             drawConcreteFinger(g_HandJoints2, 9, 10, 11, 12);
             drawConcreteFinger(g_HandJoints2, 13, 14, 15, 16);
             drawConcreteFinger(g_HandJoints2, 17, 18, 19, 20);
-        } else {
+        }
+        else {
             // Draw skin hands
             if (g_TextureEnabled && g_HandTexture != 0) {
                 glEnable(GL_TEXTURE_2D);
@@ -3402,7 +3416,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
         }
         glPopMatrix();
-        
+
         // Draw sword in right hand if enabled
         if (gSwordVisible && gSwordInRightHand) {
             glPushMatrix();
@@ -3454,7 +3468,7 @@ void display() {
     gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
 
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    Vec3 eye; { eye.x = gTarget.x + gDist * cos(gPitch) * sin(gYaw); eye.y = gTarget.y + gDist * sin(gPitch); eye.z = gTarget.z + gDist * cos(gPitch) * cos(gYaw); }
+    Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
     gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
 
     glPolygonMode(GL_FRONT_AND_BACK, gShowWireframe ? GL_LINE : GL_FILL);
@@ -3463,72 +3477,113 @@ void display() {
     float lightPos[] = { 20.f,20.f,30.f,1.f }; float ambientLight[] = { 0.4f,0.4f,0.4f,1.f }; float diffuseLight[] = { 0.7f,0.7f,0.7f,1.f };
     glLightfv(GL_LIGHT0, GL_POSITION, lightPos); glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight); glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
 
-    // =========================================================
-    // == 📍 NEW LEG ANIMATION LOGIC ==
-    // =========================================================
-    float bodyBob = 0.0f;
-    float leftArmSwing = 0.0f, rightArmSwing = 0.0f;
-
-    // Update leg animation
     gIsMoving = keyUp || keydown;
     gRunningAnim = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-
     if (gIsMoving) {
-        gAnimTime += 0.016f; // Assume ~60fps
+        gAnimTime += 0.016f;
     }
+
+    float bodyBob = 0.0f;
+    float leftArmSwing = 0.0f, rightArmSwing = 0.0f;
 
     if (fabsf(gMoveSpeed) > 0.1f) {
         float animSpeed = keyShift ? 1.8f : 1.0f;
         float phase = gWalkPhase * animSpeed;
-
-        // Use sin for forward/back motion. This is the main driver of the cycle.
-        float sinPhase = sin(phase);
-
-        // 1. Calculate Body Bob (vertical movement)
-        // Body is lowest at contact (phase 0, PI, 2PI) and highest mid-swing.
-        bodyBob = (cos(phase * 2.0f) * -0.5f + 0.5f) * -BODY_BOB_AMOUNT;
-
-        // 2. Calculate Arm Swing
+        float sinPhase = sinf(phase);
+        bodyBob = (cosf(phase * 2.0f) * -0.5f + 0.5f) * -BODY_BOB_AMOUNT;
         float armSwingAmplitude = keyShift ? RUN_ARM_SWING : WALK_ARM_SWING;
-
         rightArmSwing = sinPhase * armSwingAmplitude;
         leftArmSwing = -sinPhase * armSwingAmplitude;
     }
 
     glPushMatrix();
-    glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob, gCharacterPos.z); // Apply body bob
+    glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob, gCharacterPos.z);
     glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
-    // --- Draw New Animated Legs ---
     float current_speed = gRunningAnim ? gRunSpeed : gWalkSpeed;
-    float max_hip_angle = gRunningAnim ? 20.0f : 10.0f;  // thigh swing wave
-    float max_knee_angle = gRunningAnim ? 50.0f : 25.0f; // calf swing wave
+    float max_hip_angle = gRunningAnim ? 20.0f : 10.0f;
+    float max_knee_angle = gRunningAnim ? 50.0f : 25.0f;
 
-    // Left Leg Angles
     float left_leg_phase = gAnimTime * current_speed;
-    float hip_angle_L = gIsMoving ? (max_hip_angle * sin(left_leg_phase)) : 0.0f;
-    float knee_angle_L = gIsMoving ? (max_knee_angle * max(0.0f, sin(left_leg_phase))) : 0.0f;
+    float hip_angle_L = gIsMoving ? (max_hip_angle * sinf(left_leg_phase)) : 0.0f;
+    float knee_angle_L = gIsMoving ? (max_knee_angle * max(0.0f, sinf(left_leg_phase))) : 0.0f;
 
-    // Right Leg Angles
-    float right_leg_phase = gAnimTime * current_speed + (float)M_PI;
-    float hip_angle_R = gIsMoving ? (max_hip_angle * sin(right_leg_phase)) : 0.0f;
-    float knee_angle_R = gIsMoving ? (max_knee_angle * max(0.0f, sin(right_leg_phase))) : 0.0f;
+    float right_leg_phase = gAnimTime * current_speed + PI;
+    float hip_angle_R = gIsMoving ? (max_hip_angle * sinf(right_leg_phase)) : 0.0f;
+    float knee_angle_R = gIsMoving ? (max_knee_angle * max(0.0f, sinf(right_leg_phase))) : 0.0f;
 
-    // --- Draw Left Leg ---
+    const float kneeY = 4.5f, kneeZ = 0.2f;
+    const float hipY = 8.5f, hipZ = -0.2f;
+
+    // --- Draw Left Leg & Armor ---
     glPushMatrix();
-    glTranslatef(-0.75f, -2.0f, 0.55f); // Position the entire leg
-    animateLegVertices(hip_angle_L, knee_angle_L, false); // Deform vertices
-    drawLeg(); // Draw the deformed mesh
+    glTranslatef(-0.75f, -2.0f, 0.55f);
+    animateLegVertices(hip_angle_L, knee_angle_L, false);
+    glColor3f(0.9f, 0.7f, 0.6f); // Set skin color
+    drawLeg();
+    if (gArmorVisible) {
+        glPushMatrix();
+        glTranslatef(0, hipY, hipZ);
+        glRotatef(hip_angle_L, 1.0f, 0.0f, 0.0f);
+        glTranslatef(0, -hipY, -hipZ);
+        drawUpperLegArmor();
+        glTranslatef(0, kneeY, kneeZ);
+        glRotatef(knee_angle_L, 1.0f, 0.0f, 0.0f);
+        glTranslatef(0, -kneeY, -kneeZ);
+        drawLowerLegArmor();
+        drawSabatons();
+        glPopMatrix();
+    }
     glPopMatrix();
 
-    // --- Draw Right Leg ---
+    // --- Draw Right Leg & Armor ---
     glPushMatrix();
-    glTranslatef(0.75f, -2.0f, 0.55f); // Position the entire leg
-    animateLegVertices(hip_angle_R, knee_angle_R, true); // Deform vertices (and mirror)
-    drawLeg(); // Draw the deformed mesh
+    glTranslatef(0.75f, -2.0f, 0.55f);
+    animateLegVertices(hip_angle_R, knee_angle_R, true);
+    glColor3f(0.9f, 0.7f, 0.6f); // Set skin color
+    drawLeg();
+    if (gArmorVisible) {
+        glPushMatrix();
+        // CORRECTED: Isolate the mirroring so it only affects the armor
+        glPushMatrix();
+        glScalef(-1, 1, 1);
+        glFrontFace(GL_CW);
+
+        glTranslatef(0, hipY, hipZ);
+        glRotatef(hip_angle_R, 1.0f, 0.0f, 0.0f);
+        glTranslatef(0, -hipY, -hipZ);
+        drawUpperLegArmor();
+        glTranslatef(0, kneeY, kneeZ);
+        glRotatef(knee_angle_R, 1.0f, 0.0f, 0.0f);
+        glTranslatef(0, -kneeY, -kneeZ);
+        drawLowerLegArmor();
+        drawSabatons();
+        glFrontFace(GL_CCW);
+        glPopMatrix(); // End mirroring
+        glPopMatrix();
+    }
     glPopMatrix();
 
-    // Pass arm angles for arms (removed leg parameters)
+    // --- Draw Body, Head, and Armor ---
+    if (gArmorVisible) {
+        glPushMatrix();
+        glTranslatef(0.0f, 6.0f - 0.05f, 0.0f);
+        glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
+        glRotatef(g_pose.torsoYaw, 0, 1, 0);
+        glRotatef(g_pose.torsoPitch, 1, 0, 0);
+        glRotatef(g_pose.torsoRoll, 0, 0, 1);
+        drawArmor();
+        glPushMatrix();
+        glTranslatef(0, HEAD_CENTER_Y, 0);
+        glRotatef(g_pose.headYaw, 0, 1, 0);
+        glRotatef(g_pose.headPitch, 1, 0, 0);
+        glRotatef(g_pose.headRoll, 0, 0, 1);
+        glTranslatef(0, -0.2f, 0);
+        drawHelmet();
+        glPopMatrix();
+        glPopMatrix();
+    }
+
     drawBodyAndHead(0.0f, 0.0f, leftArmSwing, rightArmSwing);
 
     glPopMatrix();
@@ -3539,7 +3594,7 @@ void display() {
 //
 // ===================================================================
 
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     WNDCLASSEXA wc{}; wc.cbSize = sizeof(WNDCLASSEXA); wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC; wc.lpfnWndProc = WindowProcedure; wc.hInstance = GetModuleHandle(NULL); wc.lpszClassName = WINDOW_TITLE;
     if (!RegisterClassExA(&wc))return 0;
     HWND hWnd = CreateWindowA(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight, NULL, NULL, wc.hInstance, NULL);
@@ -3551,7 +3606,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
 
     glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
     initializeCharacterParts();
-    
+
     // Display configuration controls
     printf("=== CONFIGURATION CONTROLS ===\n");
     printf("JAW CONFIGURATION:\n");
@@ -3568,7 +3623,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     printf("Torso segments: %d, Head segments: %d, Head layers: %d\n", TORSO_SEGMENTS, HEAD_SEGMENTS, HEAD_LAYERS);
     printf("(Edit #defines in code to change mesh quality)\n");
     printf("===============================\n");
-    
+
     QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
 
     MSG msg{};
@@ -3601,7 +3656,7 @@ void updateCharacter(float dt) {
         float phaseSpeed = keyShift ? 10.0f : 5.0f;
         gWalkPhase += gMoveSpeed * dt * phaseSpeed / (keyShift ? 2.5f : 2.0f);
     }
-    
+
     // Update animations
     updateFistAnimation(dt);
     updateKungFuAnimation(dt);  // Add kung fu animation updates
@@ -3623,12 +3678,15 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == '3') { gConcreteHands = !gConcreteHands; } // Toggle concrete hands
         else if (wParam == 'F') { toggleFistAnimation(); } // Toggle fist animation
         else if (wParam == 'X') { gSwordVisible = !gSwordVisible; } // Toggle sword visibility
-        else if (wParam == 'Z') { gSwordInRightHand = !gSwordInRightHand; } // Switch sword hand
+        else if (wParam == 'V') { gSpearVisible = !gSpearVisible; }
+        else if (wParam == 'C') { gShieldVisible = !gShieldVisible; }
+        else if (wParam == 'Z') { gWeaponInRightHand = !gWeaponInRightHand; } // Switches ALL weapons
+        else if (wParam == 'M') { gArmorVisible = !gArmorVisible; }
         // Kung Fu Animation Styles - Now with flowing anime-like animations!
         else if (wParam == 'Q') { startKungFuAnimation(1); } // Crane style animation
         else if (wParam == 'N') { startKungFuAnimation(0); } // Stop animation / Normal pose
-       // Higher jaw transition
-        // Facial Features Scale Controls
+        // Higher jaw transition
+         // Facial Features Scale Controls
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
@@ -3644,42 +3702,4 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         return 0;
     default: return DefWindowProc(hWnd, msg, wParam, lParam);
     }
-}
-
-void drawCurvedBand(float rA, float yA, float rB, float yB) {
-	for (int i = 0; i < TORSO_SEGMENTS; ++i) {
-		float cA = segCos[i];
-		float sA = segSin[i];
-		float cB = segCos[(i + 1) % TORSO_SEGMENTS];
-		float sB = segSin[(i + 1) % TORSO_SEGMENTS];
-
-		// Base vertices
-		Vec3f v1A = { rA * cA, yA, rA * sA };
-		Vec3f v2A = { rB * cA, yB, rB * sA };
-		Vec3f v1B = { rA * cB, yA, rA * sB };
-		Vec3f v2B = { rB * cB, yB, rB * sB };
-
-		// Apply curvature
-		if (sA < 0) { // Back
-			v1A.z *= 0.5f;
-			v2A.z *= 0.5f;
-		}
-		if (sB < 0) { // Back
-			v1B.z *= 0.5f;
-			v2B.z *= 0.5f;
-		}
-
-		Vec3f nA = normalize(cross(sub(v2A, v1A), sub(v1B, v1A)));
-		Vec3f nB = normalize(cross(sub(v2B, v1B), sub(v1A, v1B)));
-
-		glNormal3f(nA.x, nA.y, nA.z);
-		glVertex3f(v1A.x, v1A.y, v1A.z);
-		glVertex3f(v2A.x, v2A.y, v2A.z);
-		glVertex3f(v2B.x, v2B.y, v2B.z);
-
-		glNormal3f(nB.x, nB.y, nB.z);
-		glVertex3f(v1A.x, v1A.y, v1A.z);
-		glVertex3f(v2B.x, v2B.y, v2B.z);
-		glVertex3f(v1B.x, v1B.y, v1B.z);
-	}
 }

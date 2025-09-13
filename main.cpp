@@ -1,14 +1,25 @@
+#define NOMINMAX
 #include <Windows.h>
 #include <windowsx.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <vector>
 #include <cstdio>
-#include <algorithm>
+#include<algorithm>
+#include <string>
 
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
+
+// Define min/max functions if not available
+#ifndef min
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
+#ifndef max
+#define max(a,b) ((a)>(b)?(a):(b))
+#endif
 
 // Define GL_BGR if not available
 #ifndef GL_BGR
@@ -51,11 +62,34 @@ bool keyZ = false; // For Sword Hand Switch
 
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
+// --- Leg Animation State ---
+float gAnimTime = 0.0f;
+float gWalkSpeed = 0.5f;
+float gRunSpeed = 1.0f;
+bool  gRunningAnim = false;
+bool  gIsMoving = false;
+
 // --- Proportions Control ---
-#define LEG_SCALE 0.9f  // Shorter legs for better body-to-leg ratio
 #define BODY_SCALE 3.5f
 #define ARM_SCALE 0.14f  // Increased for better coverage and gap elimination
 #define HAND_SCALE 0.15f
+
+// --- Jaw Configuration ---
+float JAW_CURVATURE = 3.0f;      // Controls jaw curve smoothness (higher = smoother curve)
+float JAW_WIDTH_MIN = 0.01f;      // Minimum jaw width at chin (0.4 = narrow, 0.8 = wide)
+float JAW_TRANSITION = -0.1f;    // Y position where jaw narrowing begins (-0.2 = higher, -0.5 = lower)
+
+// --- Mesh Quality Configuration ---
+#define TORSO_SEGMENTS 24        // Number of segments around torso circumference (16 = default, 32 = high quality)
+#define HEAD_SEGMENTS 20         // Number of horizontal segments around head circumference  
+#define HEAD_LAYERS 24           // Number of vertical layers in head geometry
+
+// --- Facial Features Scale Configuration ---
+float EYE_SCALE = 1.2f;          // Controls eye size (0.5 = small, 1.0 = normal, 1.5 = large)
+float NOSE_SCALE = 1.0f;         // Controls nose size (0.5 = small, 1.0 = normal, 1.5 = large)
+float MOUTH_SCALE = 1.2f;        // Controls mouth size (0.5 = small, 1.0 = normal, 1.5 = large)
+float EYEBROW_SCALE = 1.0f;      // Controls eyebrow thickness (0.5 = thin, 1.0 = normal, 1.5 = thick)
+float HAIR_SCALE = 1.0f;         // Controls hair volume (0.5 = flat, 1.0 = normal, 1.5 = voluminous)
 
 // --- Animation & Character State ---
 Vec3  gCharacterPos = { 0.0f, 0.0f, 0.0f };
@@ -115,17 +149,23 @@ KungFuPose gCurrentPose, gTargetPose;
 // =========================================================
 // == 📍 NEW: ANIMATION AMPLITUDE CONTROLS ==
 // =========================================================
-const float WALK_THIGH_SWING = 10.0f;    // Walking thigh swing angle
-const float RUN_THIGH_SWING = 25.0f;     // Running thigh swing angle
 const float WALK_ARM_SWING = 35.0f;      // Walking arm swing angle
 const float RUN_ARM_SWING = 55.0f;       // Running arm swing angle
 const float BODY_BOB_AMOUNT = 0.03f;     // How much the body moves up and down
-const float PLANTED_LEG_FLEX_AMOUNT = 15.0f; // How much the planted leg bends to absorb impact
-const float SWINGING_LEG_KNEE_BEND = -30.0f; // How much the forward-swinging leg bends at the knee
 
 // --- Data Structures ---
 struct Vec3f { float x, y, z; };
 struct Tri { int a, b, c; };
+
+// Base mesh data (read-only after creation)
+std::vector<Vec3f> gAllVertices;
+std::vector<std::vector<int>> gAllQuads;
+std::vector<Tri>   gTris;
+std::vector<Vec3f> gVertexNormals;
+
+// These will be modified each frame to create the animation
+std::vector<Vec3f> gAnimatedVertices;
+std::vector<Vec3f> gAnimatedNormals;
 struct JointPose { float torsoYaw, torsoPitch, torsoRoll; float headYaw, headPitch, headRoll; } g_pose = { 0,0,0, 0,0,0 };
 struct HandJoint { Vec3 position; int parentIndex; };
 struct ArmJoint { Vec3 position; int parentIndex; };
@@ -198,17 +238,6 @@ GLuint createSkinTexture() {
 }
 // =============================================================
 
-// --- Leg Data ---
-const Vec3f gFootVertices[] = {
-    {0.25f,0.0f,1.4f},{0.1f,0.0f,1.45f},{0.1f,0.25f,1.45f},{0.25f,0.25f,1.4f},{0.25f,0.0f,1.2f},{0.1f,0.0f,1.2f},{0.1f,0.3f,1.2f},{0.25f,0.3f,1.2f},{0.05f,0.0f,1.4f},{-0.1f,0.0f,1.35f},{-0.1f,0.2f,1.35f},{0.05f,0.2f,1.4f},{0.05f,0.0f,1.15f},{-0.1f,0.0f,1.15f},{-0.1f,0.25f,1.15f},{0.05f,0.25f,1.15f},{-0.15f,0.0f,1.3f},{-0.28f,0.0f,1.25f},{-0.28f,0.18f,1.25f},{-0.15f,0.18f,1.3f},{-0.15f,0.0f,1.1f},{-0.28f,0.0f,1.1f},{-0.28f,0.22f,1.1f},{-0.15f,0.22f,1.1f},{-0.32f,0.0f,1.2f},{-0.42f,0.0f,1.1f},{-0.42f,0.16f,1.1f},{-0.32f,0.16f,1.2f},{-0.32f,0.0f,1.0f},{-0.42f,0.0f,1.0f},{-0.42f,0.2f,1.0f},{-0.32f,0.2f,1.0f},{-0.46f,0.0f,1.0f},{-0.55f,0.0f,0.9f},{-0.55f,0.14f,0.9f},{-0.46f,0.14f,1.0f},{-0.46f,0.0f,0.8f},{-0.55f,0.0f,0.8f},{-0.55f,0.18f,0.8f},{-0.46f,0.18f,0.8f},{0.3f,0.0f,0.8f},{0.3f,0.4f,0.8f},{-0.6f,0.0f,0.6f},{-0.6f,0.3f,0.6f},{0.0f,0.9f,0.2f},{0.5f,0.8f,0.1f},{0.55f,0.9f,-0.5f},{0.0f,0.8f,-0.7f},{-0.55f,0.9f,-0.5f},{-0.5f,0.8f,0.1f},{0.0f,0.0f,0.2f},{0.4f,0.0f,-0.5f},{-0.4f,0.0f,-0.5f},{0.0f,2.0f,-0.1f},{-0.6f,1.9f,-0.3f},{-0.6f,2.2f,-0.9f},{0.0f,2.3f,-1.0f},{0.6f,2.2f,-0.9f},{0.6f,1.9f,-0.3f},{0.0f,3.5f,0.1f},{-0.5f,3.4f,-0.1f},{-0.55f,3.8f,-0.7f},{0.0f,3.9f,-0.8f},{0.55f,3.8f,-0.7f},{0.5f,3.4f,-0.1f},{0.0f,4.5f,0.3f},{-0.45f,4.4f,0.2f},{-0.5f,4.5f,-0.6f},{0.0f,4.4f,-0.7f},{0.5f,4.5f,-0.6f},{0.45f,4.4f,0.2f},{0.0f,6.0f,0.2f},{-0.7f,5.8f,0.0f},{-0.75f,6.2f,-0.5f},{0.0f,6.3f,-0.6f},{0.75f,6.2f,-0.5f},{0.7f,5.8f,0.0f},{0.0f,8.0f,0.1f},{-0.7f,7.9f,-0.1f},{-0.75f,8.1f,-0.4f},{0.0f,8.2f,-0.5f},{0.75f,8.1f,-0.4f},{0.7f,7.9f,-0.1f}
-};
-const int gFootQuads[][4] = {
-    {0,1,2,3},{4,5,1,0},{7,6,2,3},{4,0,3,7},{5,4,7,6},{8,9,10,11},{12,13,9,8},{15,14,10,11},{12,8,11,15},{13,12,15,14},{16,17,18,19},{20,21,17,16},{23,22,18,19},{20,16,19,23},{21,20,23,22},{24,25,26,27},{28,29,25,24},{31,30,26,27},{28,24,27,31},{29,28,31,30},{32,33,34,35},{36,37,33,32},{39,38,34,35},{36,32,35,39},{37,36,39,38},{4,40,41,7},{12,4,7,15},{20,12,15,23},{28,20,23,31},{36,28,31,39},{39,36,42,43},{40,5,13,12},{5,4,12,-1},{13,21,20,12},{21,29,28,20},{29,37,36,28},{37,42,36,-1},{5,50,13,-1},{13,50,21,-1},{21,50,29,-1},{29,50,37,-1},{37,50,42,-1},{41,45,49,43},{41,44,45,-1},{15,14,49,45},{23,22,14,15},{31,30,22,23},{39,38,30,31},{43,38,39,-1},{43,49,38,-1},{44,53,58,45},{45,58,52,46},{46,52,51,47},{47,51,57,48},{48,57,54,49},{49,54,53,44},{50,52,51,-1},{40,41,45,46},{46,52,47},{40,46,45,-1},{42,43,49,48},{48,51,47,-1},{42,48,49,-1},{50,40,46,52},{50,42,48,51},{50,40,52,-1},{50,42,51,-1},{53,59,60,54},{54,60,61,55},{55,61,62,56},{56,62,63,57},{57,63,64,58},{58,64,59,53},{59,65,66,60},{60,66,67,61},{61,67,68,62},{62,68,69,63},{63,69,70,64},{64,70,65,59},{65,71,72,66},{66,72,73,67},{67,73,74,68},{68,74,75,69},{69,75,76,70},{70,76,71,65},{71,77,78,72},{72,78,79,73},{73,79,80,74},{74,80,81,75},{75,81,82,76},{76,82,77,71},{82,81,80,-1},{82,80,79,-1},{82,79,78,-1},{82,78,77,-1}
-};
-std::vector<Tri>   gTris;
-std::vector<Vec3f> gVertexNormals;
-Vec3f gModelCenter{ 0,0,0 };
-
 // --- Body/Head Data ---
 GLUquadric* g_headQuadric = nullptr;
 #define C0 1.0000000f
@@ -243,8 +272,24 @@ GLUquadric* g_headQuadric = nullptr;
 #define S14 -0.7071068f
 #define C15 0.9238795f
 #define S15 -0.3826834f
-const float segCos[] = { C0,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14,C15 };
-const float segSin[] = { S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15 };
+// Dynamic segment arrays for configurable geometry
+float* segCos = nullptr;
+float* segSin = nullptr;
+
+// Initialize segment arrays based on TORSO_SEGMENTS
+void initializeSegmentArrays() {
+    if (segCos) delete[] segCos;
+    if (segSin) delete[] segSin;
+    
+    segCos = new float[TORSO_SEGMENTS];
+    segSin = new float[TORSO_SEGMENTS];
+    
+    for (int i = 0; i < TORSO_SEGMENTS; i++) {
+        float angle = 2.0f * PI * i / TORSO_SEGMENTS;
+        segCos[i] = cos(angle);
+        segSin[i] = sin(angle);
+    }
+}
 #define R0 0.50f  // Hip area - wider for better leg connection
 #define R1 0.49f
 #define R2 0.48f
@@ -284,9 +329,9 @@ const float segSin[] = { S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15 }
 #define Y16 1.58f
 #define Y17 1.66f  // Upper shoulder slope - feminine curve
 #define Y18 1.76f  // Lower shoulder slope - elegant transition
-#define Y19 1.88f  // Upper neck - connects to head
+#define Y19 1.85f  // Upper neck - connects to head
 #define HEAD_CENTER_Y 1.92f  // Perfectly centered on torso middle, sits naturally on neck
-#define HEAD_RADIUS   0.24f
+#define HEAD_RADIUS   0.3f
 #define QUAD(r1,y1,r2,y2,cA,sA,cB,sB) glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cA),(y2),(r2)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cA),(y1),(r1)*(sA));glVertex3f((r2)*(cB),(y2),(r2)*(sB));glVertex3f((r1)*(cB),(y1),(r1)*(sB));
 #define BAND(rA,yA,rB,yB) QUAD(rA,yA,rB,yB,C0,S0,C1,S1) QUAD(rA,yA,rB,yB,C1,S1,C2,S2) QUAD(rA,yA,rB,yB,C2,S2,C3,S3) QUAD(rA,yA,rB,yB,C3,S3,C4,S4) QUAD(rA,yA,rB,yB,C4,S4,C5,S5) QUAD(rA,yA,rB,yB,C5,S5,C6,S6) QUAD(rA,yA,rB,yB,C6,S6,C7,S7) QUAD(rA,yA,rB,yB,C7,S7,C8,S8) QUAD(rA,yA,rB,yB,C8,S8,C9,S9) QUAD(rA,yA,rB,yB,C9,S9,C10,S10) QUAD(rA,yA,rB,yB,C10,S10,C11,S11) QUAD(rA,yA,rB,yB,C11,S11,C12,S12) QUAD(rA,yA,rB,yB,C12,S12,C13,S13) QUAD(rA,yA,rB,yB,C13,S13,C14,S14) QUAD(rA,yA,rB,yB,C14,S14,C15,S15) QUAD(rA,yA,rB,yB,C15,S15,C0,S0)
 
@@ -536,9 +581,6 @@ void drawSword() {
 LRESULT WINAPI WindowProcedure(HWND, UINT, WPARAM, LPARAM);
 void display();
 void updateCharacter(float dt);
-void drawLegModel(bool mirrorX); // New helper function to draw the leg mesh
-void drawLegModel(bool mirrorX); // Add this new declaration
-void drawLeg(bool mirrorX, float thighAngle, float kneeAngle); // Modify this line
 void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle); // Updated signature
 void drawSkirt(float leftLegAngle, float rightLegAngle);
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle);
@@ -566,17 +608,156 @@ Vec3f sub(const Vec3f& p, const Vec3f& q) { return { p.x - q.x, p.y - q.y, p.z -
 Vec3f cross(const Vec3f& a, const Vec3f& b) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
 float dot(const Vec3f& a, const Vec3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 Vec3f normalize(const Vec3f& v) { float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); return (l > 1e-6f) ? Vec3f{ v.x / l, v.y / l, v.z / l } : Vec3f{ 0,0,0 }; }
-Vec3f faceNormal(int i0, int i1, int i2) { return normalize(cross(sub(gFootVertices[i1], gFootVertices[i0]), sub(gFootVertices[i2], gFootVertices[i0]))); }
-Vec3f triCenter(int i0, int i1, int i2) { const Vec3f& v0 = gFootVertices[i0], & v1 = gFootVertices[i1], & v2 = gFootVertices[i2]; return { (v0.x + v1.x + v2.x) / 3.f,(v0.y + v1.y + v2.y) / 3.f,(v0.z + v1.z + v2.z) / 3.f }; }
-void buildTriangles() {
-    int nV = sizeof(gFootVertices) / sizeof(gFootVertices[0]); for (int i = 0; i < nV; ++i) { gModelCenter.x += gFootVertices[i].x; gModelCenter.y += gFootVertices[i].y; gModelCenter.z += gFootVertices[i].z; } gModelCenter.x /= nV; gModelCenter.y /= nV; gModelCenter.z /= nV; gTris.clear();
-    for (const auto& q : gFootQuads) { if (q[3] == -1) { int a = q[0], b = q[1], c = q[2]; if (dot(faceNormal(a, b, c), sub(triCenter(a, b, c), gModelCenter)) < 0)std::swap(b, c); gTris.push_back({ a,b,c }); } else { int a = q[0], b = q[1], c = q[2], d = q[3]; { int i0 = a, i1 = b, i2 = d; if (dot(faceNormal(i0, i1, i2), sub(triCenter(i0, i1, i2), gModelCenter)) < 0)std::swap(i1, i2); gTris.push_back({ i0,i1,i2 }); } { int i0 = b, i1 = c, i2 = d; if (dot(faceNormal(i0, i1, i2), sub(triCenter(i0, i1, i2), gModelCenter)) < 0)std::swap(i1, i2); gTris.push_back({ i0,i1,i2 }); } } }
+
+// --------------------- FOOT GEOMETRY (from leg.cpp) ---------------------
+const Vec3f gFootVertices[] = {
+    // Toes
+    {0.25f, 0.0f, 1.4f}, {0.1f, 0.0f, 1.45f}, {0.1f, 0.25f, 1.45f}, {0.25f, 0.25f, 1.4f}, // 0-3
+    {0.25f, 0.0f, 1.2f}, {0.1f, 0.0f, 1.2f}, {0.1f, 0.3f, 1.2f}, {0.25f, 0.3f, 1.2f},     // 4-7
+    {0.05f, 0.0f, 1.4f}, {-0.1f, 0.0f, 1.35f}, {-0.1f, 0.2f, 1.35f}, {0.05f, 0.2f, 1.4f}, // 8-11
+    {0.05f, 0.0f, 1.15f}, {-0.1f, 0.0f, 1.15f}, {-0.1f, 0.25f, 1.15f}, {0.05f, 0.25f, 1.15f}, // 12-15
+    {-0.15f, 0.0f, 1.3f}, {-0.28f, 0.0f, 1.25f}, {-0.28f, 0.18f, 1.25f}, {-0.15f, 0.18f, 1.3f}, // 16-19
+    {-0.15f, 0.0f, 1.1f}, {-0.28f, 0.0f, 1.1f}, {-0.28f, 0.22f, 1.1f}, {-0.15f, 0.22f, 1.1f}, // 20-23
+    {-0.32f, 0.0f, 1.2f}, {-0.42f, 0.0f, 1.1f}, {-0.42f, 0.16f, 1.1f}, {-0.32f, 0.16f, 1.2f}, // 24-27
+    {-0.32f, 0.0f, 1.0f}, {-0.42f, 0.0f, 1.0f}, {-0.42f, 0.2f, 1.0f}, {-0.32f, 0.2f, 1.0f}, // 28-31
+    {-0.46f, 0.0f, 1.0f}, {-0.55f, 0.0f, 0.9f}, {-0.55f, 0.14f, 0.9f}, {-0.46f, 0.14f, 1.0f}, // 32-35
+    {-0.46f, 0.0f, 0.8f}, {-0.55f, 0.0f, 0.8f}, {-0.55f, 0.18f, 0.8f}, {-0.46f, 0.18f, 0.8f}, // 36-39
+
+    // Sides + ankle + heel + arch (rest of foot)
+    {0.3f, 0.0f, 0.8f}, {0.3f, 0.4f, 0.8f}, {-0.6f, 0.0f, 0.6f}, {-0.6f, 0.3f, 0.6f},
+    {0.0f, 0.9f, 0.2f}, {0.5f, 0.8f, 0.1f}, {0.55f, 0.9f, -0.5f}, {0.0f, 0.8f, -0.7f}, {-0.55f, 0.9f, -0.5f}, {-0.5f, 0.8f, 0.1f},
+    {0.0f, 0.0f, 0.2f}, {0.4f, 0.0f, -0.5f}, {-0.4f, 0.0f, -0.5f},
+    {0.35f, 0.6f, 0.5f}, {0.1f, 0.7f, 0.4f}, {-0.15f, 0.65f, 0.4f}, {-0.35f, 0.5f, 0.4f}, {-0.5f, 0.45f, 0.3f},
+    {0.2f, 0.0f, 0.7f}, {0.0f, 0.0f, 0.65f}, {-0.2f, 0.0f, 0.6f}, {-0.4f, 0.0f, 0.5f},
+    {0.0f, 1.2f, 0.2f}, {0.3f, 1.1f, 0.1f}, {0.35f, 1.2f, -0.4f}, {0.0f, 1.1f, -0.6f}, {-0.35f, 1.2f, -0.4f}, {-0.3f, 1.1f, 0.1f},
+    {0.4f, 0.4f, 0.0f}, {-0.45f, 0.4f, 0.0f}, {0.2f, 0.0f, -0.1f}, {-0.2f, 0.0f, -0.1f},
+    {0.3f, 0.4f, -0.7f}, {0.0f, 0.3f, -0.85f}, {-0.3f, 0.4f, -0.7f}
+};
+const int gFootQuads[][4] = {
+    // Toes
+    {0,1,2,3}, {4,5,1,0}, {7,6,2,3}, {4,0,3,7}, {5,4,7,6},
+    {8,9,10,11}, {12,13,9,8}, {15,14,10,11}, {12,8,11,15}, {13,12,15,14},
+    {16,17,18,19}, {20,21,17,16}, {23,22,18,19}, {20,16,19,23}, {21,20,23,22},
+    {24,25,26,27}, {28,29,25,24}, {31,30,26,27}, {28,24,27,31}, {29,28,31,30},
+    {32,33,34,35}, {36,37,33,32}, {39,38,34,35}, {36,32,35,39}, {37,36,39,38},
+
+    // === FOOT BODY ===
+    {40, 41, 7, 5},   // Inner side near big toe
+    {42, 43, 39, 37}, // Outer side near pinky
+
+    // Top of Foot
+    {7, 15, 54, 53}, {15, 23, 55, 54}, {23, 31, 56, 55}, {31, 39, 57, 56},
+    {41, 7, 53, -1}, {43, 39, 57, -1},
+    {53, 54, 44, 45}, {54, 55, 49, 44}, {55, 56, 48, 49}, {56, 57, 48, -1},
+
+    // Sole of Foot with Arch
+    {5, 13, 59, 58}, {13, 21, 60, 59}, {21, 29, 61, 60},
+    {29, 37, 61, -1}, {37, 42, 61, -1},
+    {40, 5, 58, -1},
+    {58, 59, 70, 50}, {59, 60, 71, 70}, {60, 61, 52, 71},
+    {70, 71, 52, 51}, {50, 70, 51, -1},
+
+    // Detailed Side Walls
+    {41, 53, 68, -1}, {53, 45, 68, -1}, {40, 41, 68, -1},
+    {43, 57, 69, -1}, {57, 48, 69, -1}, {42, 43, 69, -1},
+
+    // Detailed Heel
+    {51, 73, 72, -1}, {52, 74, 73, 51},
+    {46, 47, 72, -1}, {72, 47, 73, -1}, {73, 47, 74, -1}, {48, 47, 74, -1},
+
+    // === ANKLE STRUCTURE ===
+    {45, 44, 62, 63}, {44, 49, 67, 62}, {49, 48, 66, 67},
+    {48, 47, 65, 66}, {47, 46, 64, 65}, {46, 45, 63, 64},
+    {62, 63, 64, 65}, {62, 65, 66, 67},
+
+    // FINAL PATCHES (toe gaps + side walls)
+    {68, 45, 46, 72}, {68, 72, 51, -1}, {68, 51, 70, -1}, {68, 70, 50, 40},
+    {69, 48, 47, 74}, {69, 74, 52, -1}, {69, 52, 71, -1}, {69, 71, 61, 42},
+    {7, 15, 13, 5}, {15, 23, 21, 13}, {23, 31, 29, 21}, {31, 39, 37, 29}
+};
+const int gNumFootVertices = sizeof(gFootVertices) / sizeof(gFootVertices[0]);
+const int gNumFootQuads = sizeof(gFootQuads) / sizeof(gFootQuads[0]);
+
+// --------------------- Math Helpers from leg.cpp ---------------------
+std::vector<Vec3f> generateRing(float cx, float cy, float cz, float radiusX, float radiusZ, int numSegments, float startAngle = 0.0f) {
+    std::vector<Vec3f> ringVertices;
+    for (int i = 0; i < numSegments; ++i) {
+        float angle = startAngle + 2.0f * (float)M_PI * i / numSegments;
+        ringVertices.push_back({ cx + radiusX * std::sin(angle), cy, cz + radiusZ * std::cos(angle) });
+    }
+    return ringVertices;
 }
+
+void addRingQuads(int ring1StartIdx, int ring2StartIdx, int numSegments) {
+    for (int i = 0; i < numSegments; ++i) {
+        int i0 = ring1StartIdx + i;
+        int i1 = ring1StartIdx + (i + 1) % numSegments;
+        int i2 = ring2StartIdx + (i + 1) % numSegments;
+        int i3 = ring2StartIdx + i;
+        gAllQuads.push_back({ i0, i1, i2, i3 });
+    }
+}
+
+inline Vec3f rotateY(const Vec3f& v, float ang) {
+    float s = std::sin(ang), c = std::cos(ang);
+    return { c * v.x + s * v.z, v.y, -s * v.x + c * v.z };
+}
+
+// --------------------- Build Mesh (Leg + Foot) from leg.cpp ---------------------
+void buildLegMesh() {
+    gAllVertices.clear(); gAllQuads.clear();
+    const int legSegments = 40; const float legScale = 0.7f; int currentVertexIndex = 0;
+    int ankleRingIdx = currentVertexIndex; auto ankleRing = generateRing(0.0f, 0.9f, -0.3f, 0.5f * legScale, 0.4f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), ankleRing.begin(), ankleRing.end()); currentVertexIndex += legSegments;
+    int lowerShinRingIdx = currentVertexIndex; auto lowerShinRing = generateRing(0.0f, 1.45f, -0.2f, 0.55f * legScale, 0.45f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), lowerShinRing.begin(), lowerShinRing.end()); currentVertexIndex += legSegments; addRingQuads(ankleRingIdx, lowerShinRingIdx, legSegments);
+    int lowerCalfRingIdx = currentVertexIndex; auto lowerCalfRing = generateRing(0.0f, 2.0f, -0.2f, 0.6f * legScale, 0.5f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), lowerCalfRing.begin(), lowerCalfRing.end()); currentVertexIndex += legSegments; addRingQuads(lowerShinRingIdx, lowerCalfRingIdx, legSegments);
+    int midCalfRingIdx = currentVertexIndex; auto midCalfRing = generateRing(0.0f, 2.75f, 0.0f, 0.7f * legScale, 0.6f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), midCalfRing.begin(), midCalfRing.end()); currentVertexIndex += legSegments; addRingQuads(lowerCalfRingIdx, midCalfRingIdx, legSegments);
+    int upperCalfRingIdx = currentVertexIndex; auto upperCalfRing = generateRing(0.0f, 3.5f, 0.1f, 0.65f * legScale, 0.55f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), upperCalfRing.begin(), upperCalfRing.end()); currentVertexIndex += legSegments; addRingQuads(midCalfRingIdx, upperCalfRingIdx, legSegments);
+    int kneeJointBottomIdx = currentVertexIndex; auto kneeJointBottom = generateRing(0.0f, 4.0f, 0.15f, 0.7f * legScale, 0.6f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), kneeJointBottom.begin(), kneeJointBottom.end()); currentVertexIndex += legSegments; addRingQuads(upperCalfRingIdx, kneeJointBottomIdx, legSegments);
+    int kneeJointMidLowerIdx = currentVertexIndex; auto kneeJointMidLower = generateRing(0.0f, 4.3f, 0.25f, 0.75f * legScale, 0.65f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), kneeJointMidLower.begin(), kneeJointMidLower.end()); currentVertexIndex += legSegments; addRingQuads(kneeJointBottomIdx, kneeJointMidLowerIdx, legSegments);
+    int kneeJointMidUpperIdx = currentVertexIndex; auto kneeJointMidUpper = generateRing(0.0f, 4.7f, 0.3f, 0.8f * legScale, 0.7f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), kneeJointMidUpper.begin(), kneeJointMidUpper.end()); currentVertexIndex += legSegments; addRingQuads(kneeJointMidLowerIdx, kneeJointMidUpperIdx, legSegments);
+    int kneeJointTopIdx = currentVertexIndex; auto kneeJointTop = generateRing(0.0f, 5.0f, 0.2f, 0.75f * legScale, 0.65f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), kneeJointTop.begin(), kneeJointTop.end()); currentVertexIndex += legSegments; addRingQuads(kneeJointMidUpperIdx, kneeJointTopIdx, legSegments);
+    int lowerThighRingIdx = currentVertexIndex; auto lowerThighRing = generateRing(0.0f, 5.5f, 0.1f, 0.8f * legScale, 0.7f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), lowerThighRing.begin(), lowerThighRing.end()); currentVertexIndex += legSegments; addRingQuads(kneeJointTopIdx, lowerThighRingIdx, legSegments);
+    int midThighRingIdx = currentVertexIndex; auto midThighRing = generateRing(0.0f, 6.5f, 0.0f, 0.9f * legScale, 0.8f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), midThighRing.begin(), midThighRing.end()); currentVertexIndex += legSegments; addRingQuads(lowerThighRingIdx, midThighRingIdx, legSegments);
+    int upperThighRingIdx = currentVertexIndex; auto upperThighRing = generateRing(0.0f, 7.5f, -0.1f, 0.95f * legScale, 0.85f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), upperThighRing.begin(), upperThighRing.end()); currentVertexIndex += legSegments; addRingQuads(midThighRingIdx, upperThighRingIdx, legSegments);
+    int hipRingIdx = currentVertexIndex; auto hipRing = generateRing(0.0f, 8.5f, -0.2f, 1.0f * legScale, 0.9f * legScale, legSegments); gAllVertices.insert(gAllVertices.end(), hipRing.begin(), hipRing.end()); currentVertexIndex += legSegments; addRingQuads(upperThighRingIdx, hipRingIdx, legSegments);
+    int topCenterIdx = currentVertexIndex++; gAllVertices.push_back({ 0.0f, 8.7f, -0.2f }); for (int i = 0; i < legSegments; ++i) { gAllQuads.push_back({ hipRingIdx + i, hipRingIdx + (i + 1) % legSegments, topCenterIdx, -1 }); }
+    const float footScaleX = 0.95f, footScaleZ = 0.95f, footLift = 0.0f, footShiftZ = -0.15f, footYaw = 0.0f; int footStartIdx = currentVertexIndex; for (int i = 0; i < gNumFootVertices; ++i) { Vec3f v = gFootVertices[i]; v.x *= footScaleX * legScale; v.z *= footScaleZ * legScale; v = rotateY(v, footYaw); v.y += footLift; v.z += footShiftZ; gAllVertices.push_back(v); ++currentVertexIndex; } for (int i = 0; i < gNumFootQuads; ++i) { std::vector<int> quad; for (int j = 0; j < 4; ++j) { int idx = gFootQuads[i][j]; if (idx == -1) break; quad.push_back(footStartIdx + idx); } gAllQuads.push_back(quad); }
+    int footRingStart = footStartIdx + 44; int footRingCount = 6; int adapterStartIdx = currentVertexIndex; for (int i = 0; i < 12; ++i) { float s = (i / 12.0f) * footRingCount; int k = (int)std::floor(s); float t = s - k; int k0 = (k) % footRingCount; int k1 = (k + 1) % footRingCount; const Vec3f& a = gAllVertices[footRingStart + k0]; const Vec3f& b = gAllVertices[footRingStart + k1]; Vec3f sample = { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t }; gAllVertices.push_back(sample); ++currentVertexIndex; } addRingQuads(ankleRingIdx, adapterStartIdx, 12);
+}
+
+// --------------------- Triangles & Normals from leg.cpp ---------------------
+Vec3f faceNormal(int i0, int i1, int i2) {
+    const Vec3f& v0 = gAllVertices[i0]; const Vec3f& v1 = gAllVertices[i1]; const Vec3f& v2 = gAllVertices[i2];
+    return normalize(cross(sub(v1, v0), sub(v2, v0)));
+}
+
+void buildTriangles()
+{
+    gTris.clear();
+    for (const auto& q : gAllQuads) {
+        if (q.size() == 3 || (q.size() == 4 && q[3] == -1)) {
+            gTris.push_back({ q[0], q[1], q[2] });
+        }
+        else if (q.size() == 4) {
+            gTris.push_back({ q[0], q[1], q[3] });
+            gTris.push_back({ q[1], q[2], q[3] });
+        }
+    }
+}
+
 void computeVertexNormals() {
-    int nV = sizeof(gFootVertices) / sizeof(gFootVertices[0]); gVertexNormals.assign(nV, { 0,0,0 });
-    for (const auto& t : gTris) { Vec3f n = faceNormal(t.a, t.b, t.c); gVertexNormals[t.a].x += n.x; gVertexNormals[t.a].y += n.y; gVertexNormals[t.a].z += n.z; gVertexNormals[t.b].x += n.x; gVertexNormals[t.b].y += n.y; gVertexNormals[t.b].z += n.z; gVertexNormals[t.c].x += n.x; gVertexNormals[t.c].y += n.y; gVertexNormals[t.c].z += n.z; }
-    for (int i = 0; i < nV; ++i)gVertexNormals[i] = normalize(gVertexNormals[i]);
+    size_t nV = gAllVertices.size();
+    if (nV == 0) return;
+    gVertexNormals.assign(nV, { 0.0f, 0.0f, 0.0f });
+    for (const auto& t : gTris) {
+        Vec3f n = faceNormal(t.a, t.b, t.c);
+        gVertexNormals[t.a].x += n.x; gVertexNormals[t.a].y += n.y; gVertexNormals[t.a].z += n.z;
+        gVertexNormals[t.b].x += n.x; gVertexNormals[t.b].y += n.y; gVertexNormals[t.b].z += n.z;
+        gVertexNormals[t.c].x += n.x; gVertexNormals[t.c].y += n.y; gVertexNormals[t.c].z += n.z;
+    }
+    for (size_t i = 0; i < nV; ++i) gVertexNormals[i] = normalize(gVertexNormals[i]);
 }
+
 static void InitializeHand() {
     g_HandJoints.clear();
     g_HandJoints.resize(21);
@@ -667,6 +848,8 @@ static void InitializeArm2() {
 }
 
 void initializeCharacterParts() {
+    initializeSegmentArrays(); // Initialize dynamic segment arrays for configurable geometry
+    buildLegMesh();
     buildTriangles();
     computeVertexNormals();
     InitializeHand();
@@ -1996,124 +2179,6 @@ void startKungFuAnimation(int style) {
     gKungFuAnimationPhase = 0;
 }
 
-// leg
-
-// Helper function to make leg cross-sections more round
-Vec3f makeRoundedVertex(const Vec3f& originalVertex) {
-    Vec3f rounded = originalVertex;
-    
-    // Get the radius from center at this Y level
-    float radius = sqrtf(originalVertex.x * originalVertex.x + originalVertex.z * originalVertex.z);
-    
-    // Calculate the angle around the Y axis
-    float angle = atan2f(originalVertex.z, originalVertex.x);
-    
-    // Determine target radius based on Y position for different leg sections (slimmer)
-    float targetRadius;
-    if (originalVertex.y < 2.0f) {
-        // Foot area - keep original shape for foot details
-        return originalVertex;
-    } else if (originalVertex.y < 4.0f) {
-        // Ankle/lower calf - gradually round and slim
-        targetRadius = 0.2f + (originalVertex.y - 2.0f) * 0.05f; // 0.2 to 0.3 (was 0.3 to 0.5)
-    } else if (originalVertex.y < 6.0f) {
-        // Mid calf - rounder but slimmer
-        targetRadius = 0.3f + (originalVertex.y - 4.0f) * 0.05f; // 0.3 to 0.4 (was 0.5 to 0.6)
-    } else {
-        // Upper leg/thigh - roundest but much slimmer
-        targetRadius = 0.4f + (originalVertex.y - 6.0f) * 0.03f; // 0.4 to 0.46+ (was 0.6 to 0.7+)
-    }
-    
-    // If original radius is very small, don't modify much (preserve center line)
-    if (radius < 0.1f) {
-        return originalVertex;
-    }
-    
-    // Apply circular transformation
-    float blendFactor = 0.7f; // How much to round (0.7 = 70% round, 30% original)
-    float newRadius = radius * (1.0f - blendFactor) + targetRadius * blendFactor;
-    
-    // Reconstruct position with new radius
-    rounded.x = newRadius * cosf(angle);
-    rounded.z = newRadius * sinf(angle);
-    // Keep original Y coordinate
-    rounded.y = originalVertex.y;
-    
-    return rounded;
-}
-
-// This helper just draws the raw leg model triangles with rounded cross-sections.
-void drawLegModel(bool mirrorX) {
-    float mirror = mirrorX ? -1.0f : 1.0f;
-    glColor3f(0.85f, 0.64f, 0.52f);
-    glBegin(GL_TRIANGLES);
-    for (const auto& t : gTris) {
-        // Apply rounding to vertices
-        const Vec3f& n0 = gVertexNormals[t.a]; 
-        Vec3f v0 = makeRoundedVertex(gFootVertices[t.a]);
-        glNormal3f(n0.x * mirror, n0.y, n0.z); glVertex3f(v0.x * mirror, v0.y * LEG_SCALE, v0.z);
-        
-        const Vec3f& n1 = gVertexNormals[t.b]; 
-        Vec3f v1 = makeRoundedVertex(gFootVertices[t.b]);
-        glNormal3f(n1.x * mirror, n1.y, n1.z); glVertex3f(v1.x * mirror, v1.y * LEG_SCALE, v1.z);
-        
-        const Vec3f& n2 = gVertexNormals[t.c]; 
-        Vec3f v2 = makeRoundedVertex(gFootVertices[t.c]);
-        glNormal3f(n2.x * mirror, n2.y, n2.z); glVertex3f(v2.x * mirror, v2.y * LEG_SCALE, v2.z);
-    }
-    glEnd();
-}
-
-// MODIFIED: This function now takes separate thigh and knee angles.
-void drawLeg(bool mirrorX, float thighAngle, float kneeAngle) {
-    // Hip connects at the top of the leg mesh (8.2f scaled)
-    // This matches the body positioning in drawBodyAndHead
-    const float hipHeight = 8.2f * LEG_SCALE; // Top of leg mesh connects to body bottom
-    const float kneeHeight = 3.9f * LEG_SCALE; // The Y-coordinate of the knee joint
-
-    // --- PART 1: Draw Upper Leg (Thigh) ---
-    glPushMatrix();
-    {
-        // 1. Rotate the thigh from the hip
-        glTranslatef(0.0f, hipHeight, 0.0f);
-        glRotatef(thighAngle, 1.0f, 0.0f, 0.0f);
-        glTranslatef(0.0f, -hipHeight, 0.0f);
-
-        // 2. Clip away the lower leg (everything below the knee)
-        GLdouble clipPlaneUpper[] = { 0.0, 1.0, 0.0, -kneeHeight };
-        glClipPlane(GL_CLIP_PLANE0, clipPlaneUpper);
-        glEnable(GL_CLIP_PLANE0);
-
-        drawLegModel(mirrorX);
-
-        glDisable(GL_CLIP_PLANE0);
-    }
-    glPopMatrix();
-
-    // --- PART 2: Draw Lower Leg (Calf and Foot) ---
-    glPushMatrix();
-    {
-        // 1. First, apply the same hip rotation to the entire leg
-        glTranslatef(0.0f, hipHeight, 0.0f);
-        glRotatef(thighAngle, 1.0f, 0.0f, 0.0f);
-        glTranslatef(0.0f, -hipHeight, 0.0f);
-
-        // 2. Then, apply the knee bend rotation around the knee joint
-        glTranslatef(0.0f, kneeHeight, 0.0f);
-        glRotatef(kneeAngle, 1.0f, 0.0f, 0.0f);
-        glTranslatef(0.0f, -kneeHeight, 0.0f);
-
-        // 3. Clip away the upper leg (everything above the knee)
-        GLdouble clipPlaneLower[] = { 0.0, -1.0, 0.0, kneeHeight };
-        glClipPlane(GL_CLIP_PLANE0, clipPlaneLower);
-        glEnable(GL_CLIP_PLANE0);
-
-        drawLegModel(mirrorX);
-
-        glDisable(GL_CLIP_PLANE0);
-    }
-    glPopMatrix();
-}
 // --- Skirt Drawing ---
 void drawSkirt(float leftLegAngle, float rightLegAngle) {
     const float topR = R8 + 0.11f;
@@ -2188,6 +2253,86 @@ void drawSkirt(float leftLegAngle, float rightLegAngle) {
     glEnd();
 }
 
+// --------------------- Animation and Drawing from leg.cpp ---------------------
+void animateLegVertices(float hipAngle, float kneeAngle, bool mirror) {
+    if (gAnimatedVertices.size() != gAllVertices.size()) {
+        gAnimatedVertices.resize(gAllVertices.size());
+        gAnimatedNormals.resize(gAllVertices.size());
+    }
+
+    float hipRad = hipAngle * (float)M_PI / 180.0f;
+    float kneeRad = kneeAngle * (float)M_PI / 180.0f;
+
+    float cosHip = cos(hipRad), sinHip = sin(hipRad);
+    float cosKnee = cos(kneeRad), sinKnee = sin(kneeRad);
+
+    const float kneeY = 4.5f, kneeZ = 0.2f;
+    const float hipY = 8.5f, hipZ = -0.2f;
+
+    for (size_t i = 0; i < gAllVertices.size(); ++i) {
+        Vec3f v = gAllVertices[i];
+        Vec3f n = gVertexNormals[i];
+
+        // 1. Knee bend (only affects lower leg vertices)
+        if (v.y <= kneeY) {
+            float translatedY = v.y - kneeY;
+            float translatedZ = v.z - kneeZ;
+            v.y = translatedY * cosKnee - translatedZ * sinKnee + kneeY;
+            v.z = translatedY * sinKnee + translatedZ * cosKnee + kneeZ;
+
+            // Also rotate the normal
+            float normalY = n.y;
+            float normalZ = n.z;
+            n.y = normalY * cosKnee - normalZ * sinKnee;
+            n.z = normalY * sinKnee + normalZ * cosKnee;
+        }
+
+        // 2. Hip bend (affects all vertices)
+        float translatedY = v.y - hipY;
+        float translatedZ = v.z - hipZ;
+        v.y = translatedY * cosHip - translatedZ * sinHip + hipY;
+        v.z = translatedY * sinHip + translatedZ * cosHip + hipZ;
+
+        // Also rotate the normal
+        float normalY = n.y;
+        float normalZ = n.z;
+        n.y = normalY * cosHip - normalZ * sinHip;
+        n.z = normalY * sinHip + normalZ * cosHip;
+
+        // 3. Mirror if necessary
+        if (mirror) {
+            v.x *= -1.0f;
+            n.x *= -1.0f;
+        }
+
+        gAnimatedVertices[i] = v;
+        gAnimatedNormals[i] = n;
+    }
+}
+
+void drawLeg()
+{
+    glBegin(GL_TRIANGLES);
+    for (const auto& t : gTris)
+    {
+        const Vec3f& n0 = gAnimatedNormals[t.a];
+        const Vec3f& v0 = gAnimatedVertices[t.a];
+        glNormal3f(n0.x, n0.y, n0.z);
+        glVertex3f(v0.x, v0.y, v0.z);
+
+        const Vec3f& n1 = gAnimatedNormals[t.b];
+        const Vec3f& v1 = gAnimatedVertices[t.b];
+        glNormal3f(n1.x, n1.y, n1.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+
+        const Vec3f& n2 = gAnimatedNormals[t.c];
+        const Vec3f& v2 = gAnimatedVertices[t.c];
+        glNormal3f(n2.x, n2.y, n2.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+    }
+    glEnd();
+}
+
 // --- Body and Head Drawing ---
 // Draw Mulan's detailed facial features
 void drawMulanEyes() {
@@ -2195,6 +2340,12 @@ void drawMulanEyes() {
     const float eyeY = headR * 0.2f; // Position relative to head center
     const float eyeZ = headR * 0.95f; // Moved forward to face surface
     const float eyeSpacing = 0.1f; // Slightly wider spacing
+    
+    // Apply eye scaling
+    glPushMatrix();
+    glTranslatef(0.0f, eyeY, eyeZ); // Move to eye level
+    glScalef(EYE_SCALE, EYE_SCALE, 1.0f); // Scale eyes
+    glTranslatef(0.0f, -eyeY, -eyeZ); // Move back
     
     // Eye whites (almond shaped for East Asian features)
     glColor3f(0.95f, 0.95f, 0.95f);
@@ -2260,6 +2411,8 @@ void drawMulanEyes() {
         glVertex3f(eyeSpacing - 0.008f + 0.004f * cos(a), eyeY + 0.008f + 0.004f * sin(a), eyeZ + 0.003f);
     }
     glEnd();
+    
+    glPopMatrix(); // End eye scaling
 }
 
 void drawMulanEyebrows() {
@@ -2270,7 +2423,7 @@ void drawMulanEyebrows() {
     
     // Dark brown eyebrows
     glColor3f(0.15f, 0.1f, 0.05f);
-    glLineWidth(3.0f);
+    glLineWidth(3.0f * EYEBROW_SCALE); // Scale eyebrow thickness
     
     // Left eyebrow
     glBegin(GL_LINE_STRIP);
@@ -2298,9 +2451,15 @@ void drawMulanNose() {
     const float noseY = -headR * 0.02f; // Position relative to head center
     const float noseZ = headR * 0.98f; // Moved forward to face surface
     
+    // Apply nose scaling
+    glPushMatrix();
+    glTranslatef(0.0f, noseY, noseZ); // Move to nose center
+    glScalef(NOSE_SCALE, NOSE_SCALE, NOSE_SCALE); // Scale nose
+    glTranslatef(0.0f, -noseY, -noseZ); // Move back
+    
     // Nose bridge (subtle for East Asian features)
     glColor3f(0.85f, 0.65f, 0.55f); // Slightly darker than skin
-    glLineWidth(2.0f);
+    glLineWidth(2.0f * NOSE_SCALE); // Scale line width
     
     glBegin(GL_LINE_STRIP);
     glVertex3f(0.0f, noseY + 0.03f, noseZ);
@@ -2316,6 +2475,7 @@ void drawMulanNose() {
     glEnd();
     
     glLineWidth(1.0f);
+    glPopMatrix(); // End nose scaling
 }
 
 void drawMulanMouth() {
@@ -2323,9 +2483,15 @@ void drawMulanMouth() {
     const float mouthY = -headR * 0.3f; // Position relative to head center
     const float mouthZ = headR * 0.95f; // Moved forward to face surface
     
+    // Apply mouth scaling
+    glPushMatrix();
+    glTranslatef(0.0f, mouthY, mouthZ); // Move to mouth center
+    glScalef(MOUTH_SCALE, MOUTH_SCALE, 1.0f); // Scale mouth
+    glTranslatef(0.0f, -mouthY, -mouthZ); // Move back
+    
     // Natural lip color
     glColor3f(0.8f, 0.4f, 0.4f);
-    glLineWidth(2.5f);
+    glLineWidth(2.5f * MOUTH_SCALE); // Scale line width
     
     // Upper lip curve
     glBegin(GL_LINE_STRIP);
@@ -2346,11 +2512,18 @@ void drawMulanMouth() {
     glEnd();
     
     glLineWidth(1.0f);
+    glPopMatrix(); // End mouth scaling
 }
 
 void drawMulanHair() {
     const float headR = HEAD_RADIUS;
     const int segments = 32;
+    
+    // Apply hair scaling for volume
+    glPushMatrix();
+    glTranslatef(0.0f, headR * 0.5f, 0.0f); // Move to hair center
+    glScalef(HAIR_SCALE, HAIR_SCALE, HAIR_SCALE); // Scale hair volume
+    glTranslatef(0.0f, -headR * 0.5f, 0.0f); // Move back
     
     glColor3f(0.05f, 0.05f, 0.1f); // Dark black hair
     
@@ -2480,6 +2653,8 @@ void drawMulanHair() {
         glVertex3f(v_bot1.x, v_bot1.y, v_bot1.z);
     }
     glEnd();
+    
+    glPopMatrix(); // End hair scaling
 }
 
 void drawMulanFace() {
@@ -2496,8 +2671,8 @@ void drawCustomFaceShape() {
     const float faceWidth = HEAD_RADIUS * 1.1f;
     const float faceHeight = HEAD_RADIUS * 1.4f;
     const float faceDepth = HEAD_RADIUS * 0.9f;
-    const int segments = 20; // Horizontal segments
-    const int layers = 16;   // Vertical layers
+    const int segments = HEAD_SEGMENTS; // Horizontal segments
+    const int layers = HEAD_LAYERS;     // Vertical layers
     
     glBegin(GL_TRIANGLES);
     
@@ -2509,12 +2684,14 @@ void drawCustomFaceShape() {
         float actualY1 = y1 * faceHeight * 0.5f;
         float actualY2 = y2 * faceHeight * 0.5f;
         
-        // Calculate face width scaling based on height for U-shaped jaw
+        // Calculate face width scaling based on height for smooth curved jaw
         float widthScale1, widthScale2;
         
-        if (y1 < -0.2f) { // Lower jaw area - create U-shape
-            float jawFactor = (y1 + 1.0f) / 0.8f; // 0 at bottom, 1 at jaw line
-            widthScale1 = 0.5f + 0.5f * jawFactor * jawFactor; // Curved U-shape, less extreme
+        if (y1 < JAW_TRANSITION) { // Lower jaw area - create smooth curved shape
+            float jawFactor = (y1 + 1.0f) / (1.0f + JAW_TRANSITION); // 0 at bottom, 1 at jaw transition line
+            // Use configurable curvature for smooth jaw shape
+            float curveValue = powf(jawFactor, 1.0f / JAW_CURVATURE);
+            widthScale1 = JAW_WIDTH_MIN + (1.0f - JAW_WIDTH_MIN) * curveValue;
         } else if (y1 < 0.4f) { // Mid face - full width
             widthScale1 = 1.0f;
         } else { // Upper face/forehead
@@ -2522,9 +2699,11 @@ void drawCustomFaceShape() {
             widthScale1 = 1.0f - 0.1f * foreheadFactor; // Slightly narrower forehead
         }
         
-        if (y2 < -0.2f) { // Lower jaw area - create U-shape
-            float jawFactor = (y2 + 1.0f) / 0.8f;
-            widthScale2 = 0.5f + 0.5f * jawFactor * jawFactor; // Curved U-shape, less extreme
+        if (y2 < JAW_TRANSITION) { // Lower jaw area - create smooth curved shape
+            float jawFactor = (y2 + 1.0f) / (1.0f + JAW_TRANSITION); // 0 at bottom, 1 at jaw transition line
+            // Use configurable curvature for smooth jaw shape
+            float curveValue = powf(jawFactor, 1.0f / JAW_CURVATURE);
+            widthScale2 = JAW_WIDTH_MIN + (1.0f - JAW_WIDTH_MIN) * curveValue;
         } else if (y2 < 0.4f) { // Mid face - full width
             widthScale2 = 1.0f;
         } else { // Upper face/forehead
@@ -2599,7 +2778,7 @@ void drawCustomFaceShape() {
         float angle1 = (float)seg / segments * 2.0f * PI;
         float angle2 = (float)(seg + 1) / segments * 2.0f * PI;
         
-        float bottomWidthScale = 0.5f; // Less narrow at chin for better proportions
+        float bottomWidthScale = JAW_WIDTH_MIN; // Use configurable jaw width at chin
         float x1 = cos(angle1) * faceWidth * bottomWidthScale;
         float z1 = sin(angle1) * faceDepth * 0.6f;
         float x2 = cos(angle2) * faceWidth * bottomWidthScale;
@@ -2632,9 +2811,9 @@ void drawMulanHead() {
     const float headBottomY = -HEAD_RADIUS * 0.7f; // Bottom of head
     
     glBegin(GL_TRIANGLES);
-    for (int i = 0; i < 16; i++) {
-        float angle1 = (float)i / 16.0f * 2.0f * PI;
-        float angle2 = (float)(i + 1) / 16.0f * 2.0f * PI;
+    for (int i = 0; i < TORSO_SEGMENTS; i++) {
+        float angle1 = (float)i / TORSO_SEGMENTS * 2.0f * PI;
+        float angle2 = (float)(i + 1) / TORSO_SEGMENTS * 2.0f * PI;
         
         // Create smooth bottom surface
         Vec3f center = {0.0f, headBottomY, 0.0f};
@@ -2720,11 +2899,11 @@ void drawTorso() {
     
     // Add neck top cap to close the neck (smooth transition to head)
     glBegin(GL_TRIANGLES);
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < TORSO_SEGMENTS; ++i) {
         float cA = segCos[i];
         float sA = segSin[i];
-        float cB = segCos[(i + 1) % 16];
-        float sB = segSin[(i + 1) % 16];
+        float cB = segCos[(i + 1) % TORSO_SEGMENTS];
+        float sB = segSin[(i + 1) % TORSO_SEGMENTS];
         
         // Create top surface at Y19 level with R19 radius
         Vec3f center = {0.0f, Y19, 0.0f};
@@ -3246,9 +3425,9 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle) {
     glPushMatrix();
     // Position body to connect seamlessly with scaled leg tops
-    // Leg mesh max Y is 8.2f, scaled by LEG_SCALE gives the connection point
+    // Leg mesh max Y is approximately 6.0f (8.2f * 0.7f scale from leg.cpp)
     // Adjust slightly lower to create overlap and eliminate gap
-    glTranslatef(0.0f, 8.2f * LEG_SCALE - 0.05f, 0.0f); // Slight overlap for seamless connection
+    glTranslatef(0.0f, 6.0f - 0.05f, 0.0f); // Slight overlap for seamless connection
     glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
     glRotatef(g_pose.torsoYaw, 0, 1, 0); glRotatef(g_pose.torsoPitch, 1, 0, 0); glRotatef(g_pose.torsoRoll, 0, 0, 1);
 
@@ -3285,12 +3464,18 @@ void display() {
     glLightfv(GL_LIGHT0, GL_POSITION, lightPos); glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight); glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
 
     // =========================================================
-    // == 📍 FINAL CORRECTED ANIMATION LOGIC ==
+    // == 📍 NEW LEG ANIMATION LOGIC ==
     // =========================================================
     float bodyBob = 0.0f;
-    float leftThighAngle = 0.0f, rightThighAngle = 0.0f;
-    float leftKneeAngle = 0.0f, rightKneeAngle = 0.0f;
     float leftArmSwing = 0.0f, rightArmSwing = 0.0f;
+
+    // Update leg animation
+    gIsMoving = keyUp || keydown;
+    gRunningAnim = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+    if (gIsMoving) {
+        gAnimTime += 0.016f; // Assume ~60fps
+    }
 
     if (fabsf(gMoveSpeed) > 0.1f) {
         float animSpeed = keyShift ? 1.8f : 1.0f;
@@ -3303,58 +3488,48 @@ void display() {
         // Body is lowest at contact (phase 0, PI, 2PI) and highest mid-swing.
         bodyBob = (cos(phase * 2.0f) * -0.5f + 0.5f) * -BODY_BOB_AMOUNT;
 
-        // 2. Calculate Thigh and Arm Swing
-        float thighSwingAmplitude = keyShift ? RUN_THIGH_SWING : WALK_THIGH_SWING;
+        // 2. Calculate Arm Swing
         float armSwingAmplitude = keyShift ? RUN_ARM_SWING : WALK_ARM_SWING;
 
-        rightThighAngle = -sinPhase * thighSwingAmplitude;
-        leftThighAngle = sinPhase * thighSwingAmplitude;
         rightArmSwing = sinPhase * armSwingAmplitude;
         leftArmSwing = -sinPhase * armSwingAmplitude;
-
-        // 3. --- CORRECTED KNEE LOGIC ---
-        // This logic bends the knee most when the thigh is in the middle of its forward swing.
-
-        // Right Leg Knee: Its forward swing is when sinPhase is negative.
-        if (rightThighAngle > 0) { // Leg is moving forward
-            float bendFactor = 1.0f - fabsf(sinPhase); // 1 at peak swing, 0 at center
-            rightKneeAngle = -(1.0f - bendFactor * bendFactor) * SWINGING_LEG_KNEE_BEND;
-        }
-        else { // Leg is moving backward
-            rightKneeAngle = -(fabsf(sinPhase)) * PLANTED_LEG_FLEX_AMOUNT;
-        }
-
-        // Left Leg Knee: Its forward swing is when sinPhase is positive.
-        if (leftThighAngle > 0) { // Leg is moving forward
-            float bendFactor = 1.0f - fabsf(sinPhase);
-            leftKneeAngle = -(1.0f - bendFactor * bendFactor) * SWINGING_LEG_KNEE_BEND;
-        }
-        else { // Leg is moving backward
-            leftKneeAngle = -(fabsf(sinPhase)) * PLANTED_LEG_FLEX_AMOUNT;
-        }
     }
 
     glPushMatrix();
     glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob, gCharacterPos.z); // Apply body bob
     glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
-    // Draw legs with better proportions
-    // Hip width should match the body radius at hip level (R8 * BODY_SCALE)
-    // Position legs at natural hip socket locations for proper human proportions
-    float hipWidth = R8 * BODY_SCALE * 0.8f; // Slightly wider hip positioning for shorter legs
-    
-    glPushMatrix(); 
-    glTranslatef(-hipWidth, 0.3f, 0.5f); // Translated up to stick to torso bottom
-    drawLeg(false, leftThighAngle, leftKneeAngle); 
-    glPopMatrix();
-    
-    glPushMatrix(); 
-    glTranslatef(hipWidth, 0.3f, 0.5f); // Translated up to stick to torso bottom
-    drawLeg(true, rightThighAngle, rightKneeAngle); 
+    // --- Draw New Animated Legs ---
+    float current_speed = gRunningAnim ? gRunSpeed : gWalkSpeed;
+    float max_hip_angle = gRunningAnim ? 20.0f : 10.0f;  // thigh swing wave
+    float max_knee_angle = gRunningAnim ? 50.0f : 25.0f; // calf swing wave
+
+    // Left Leg Angles
+    float left_leg_phase = gAnimTime * current_speed;
+    float hip_angle_L = gIsMoving ? (max_hip_angle * sin(left_leg_phase)) : 0.0f;
+    float knee_angle_L = gIsMoving ? (max_knee_angle * max(0.0f, sin(left_leg_phase))) : 0.0f;
+
+    // Right Leg Angles
+    float right_leg_phase = gAnimTime * current_speed + (float)M_PI;
+    float hip_angle_R = gIsMoving ? (max_hip_angle * sin(right_leg_phase)) : 0.0f;
+    float knee_angle_R = gIsMoving ? (max_knee_angle * max(0.0f, sin(right_leg_phase))) : 0.0f;
+
+    // --- Draw Left Leg ---
+    glPushMatrix();
+    glTranslatef(-0.75f, -2.0f, 0.55f); // Position the entire leg
+    animateLegVertices(hip_angle_L, knee_angle_L, false); // Deform vertices
+    drawLeg(); // Draw the deformed mesh
     glPopMatrix();
 
-    // Pass thigh angles for skirt and arm angles for arms
-    drawBodyAndHead(leftThighAngle, rightThighAngle, leftArmSwing, rightArmSwing);
+    // --- Draw Right Leg ---
+    glPushMatrix();
+    glTranslatef(0.75f, -2.0f, 0.55f); // Position the entire leg
+    animateLegVertices(hip_angle_R, knee_angle_R, true); // Deform vertices (and mirror)
+    drawLeg(); // Draw the deformed mesh
+    glPopMatrix();
+
+    // Pass arm angles for arms (removed leg parameters)
+    drawBodyAndHead(0.0f, 0.0f, leftArmSwing, rightArmSwing);
 
     glPopMatrix();
 }
@@ -3376,6 +3551,24 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
 
     glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
     initializeCharacterParts();
+    
+    // Display configuration controls
+    printf("=== CONFIGURATION CONTROLS ===\n");
+    printf("JAW CONFIGURATION:\n");
+    printf("J/K - Adjust jaw curvature (%.1f) - smoother/sharper curve\n", JAW_CURVATURE);
+    printf("H/L - Adjust jaw width (%.2f) - narrower/wider chin\n", JAW_WIDTH_MIN);
+    printf("Y/U - Adjust jaw transition (%.2f) - lower/higher jaw narrowing\n", JAW_TRANSITION);
+    printf("\nFACIAL FEATURES:\n");
+    printf("4/5 - Adjust eye size (%.1f) - smaller/larger eyes\n", EYE_SCALE);
+    printf("6/7 - Adjust nose size (%.1f) - smaller/larger nose\n", NOSE_SCALE);
+    printf("8/9 - Adjust mouth size (%.1f) - smaller/larger mouth\n", MOUTH_SCALE);
+    printf("T/G - Adjust eyebrow thickness (%.1f) - thinner/thicker\n", EYEBROW_SCALE);
+    printf("B/V - Adjust hair volume (%.1f) - less/more volume\n", HAIR_SCALE);
+    printf("\nMESH QUALITY:\n");
+    printf("Torso segments: %d, Head segments: %d, Head layers: %d\n", TORSO_SEGMENTS, HEAD_SEGMENTS, HEAD_LAYERS);
+    printf("(Edit #defines in code to change mesh quality)\n");
+    printf("===============================\n");
+    
     QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
 
     MSG msg{};
@@ -3434,6 +3627,8 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         // Kung Fu Animation Styles - Now with flowing anime-like animations!
         else if (wParam == 'Q') { startKungFuAnimation(1); } // Crane style animation
         else if (wParam == 'N') { startKungFuAnimation(0); } // Stop animation / Normal pose
+       // Higher jaw transition
+        // Facial Features Scale Controls
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
@@ -3452,11 +3647,11 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 }
 
 void drawCurvedBand(float rA, float yA, float rB, float yB) {
-	for (int i = 0; i < 16; ++i) {
+	for (int i = 0; i < TORSO_SEGMENTS; ++i) {
 		float cA = segCos[i];
 		float sA = segSin[i];
-		float cB = segCos[(i + 1) % 16];
-		float sB = segSin[(i + 1) % 16];
+		float cB = segCos[(i + 1) % TORSO_SEGMENTS];
+		float sB = segSin[(i + 1) % TORSO_SEGMENTS];
 
 		// Base vertices
 		Vec3f v1A = { rA * cA, yA, rA * sA };

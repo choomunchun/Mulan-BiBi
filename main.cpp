@@ -76,6 +76,16 @@ bool gSpearVisible = false;
 bool gShieldVisible = false;
 bool gWeaponInRightHand = true; // For both spear and sword
 bool gArmorVisible = false;
+float g_shoulderArmorScale = 1.0f; // NEW: Scale for shoulder armor
+float g_helmetSideOffsetX = 0.0f;  // Offset for helmet side covers
+float g_helmetSideOffsetY = 0.0f;
+float g_helmetSideOffsetZ = 0.0f;
+float g_helmetBackOffsetX = 0.0f;  // Offset for helmet back cover
+float g_helmetBackOffsetY = 0.0f;
+float g_helmetBackOffsetZ = 0.0f;
+float g_helmetDomeRotationX = 0.0f; // Rotation for helmet dome
+float g_helmetDomeRotationY = -55.0f;
+float g_helmetDomeRotationZ = 0.0f;
 
 // == Background controls
 bool gBackgroundVisible = true; // Background starts visible
@@ -3985,6 +3995,14 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         }
         glPopMatrix();
 
+        // Draw left arm armor if armor is visible
+        if (gArmorVisible) {
+            glPushMatrix();
+            // Upper arm armor only
+            drawUpperArmArmor();
+            glPopMatrix();
+        }
+
         Vec3 elbowPos = g_ArmJoints[3].position;
         glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
         glRotatef(gLeftLowerArmBend, 1.0f, 0.0f, 0.0f);  // Use new lower arm bend system
@@ -4061,6 +4079,18 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             drawLowPolyArm(g_ArmJoints2);
         }
         glPopMatrix();
+
+        // Draw right arm armor if armor is visible
+        if (gArmorVisible) {
+            glPushMatrix();
+            // Mirror the armor for right arm
+            glScalef(-1.0f, 1.0f, 1.0f);
+            glFrontFace(GL_CW);
+            // Upper arm armor only
+            drawUpperArmArmor();
+            glFrontFace(GL_CCW);
+            glPopMatrix();
+        }
 
         Vec3 rightElbowPos = g_ArmJoints2[3].position;
         glTranslatef(rightElbowPos.x * ARM_SCALE, rightElbowPos.y * ARM_SCALE, rightElbowPos.z * ARM_SCALE);
@@ -4286,6 +4316,7 @@ void renderScene() {
         glRotatef(g_pose.torsoPitch, 1, 0, 0);
         glRotatef(g_pose.torsoRoll, 0, 0, 1);
         drawArmor();
+        drawShoulderArmor();
         glPushMatrix();
         glTranslatef(0, HEAD_CENTER_Y, 0);
         glRotatef(g_pose.headYaw, 0, 1, 0);
@@ -4481,6 +4512,13 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'C') { gShieldVisible = !gShieldVisible; }
         else if (wParam == 'Z') { gWeaponInRightHand = !gWeaponInRightHand; } // Switches ALL weapons
         else if (wParam == 'M') { gArmorVisible = !gArmorVisible; }
+        // Helmet dome rotation controls
+        else if (wParam == '1') { g_helmetDomeRotationX += 5.0f; }
+        else if (wParam == '2') { g_helmetDomeRotationX -= 5.0f; }
+        else if (wParam == '3') { g_helmetDomeRotationY += 5.0f; }
+        else if (wParam == '4') { g_helmetDomeRotationY -= 5.0f; }
+        else if (wParam == '5') { g_helmetDomeRotationZ += 5.0f; }
+        else if (wParam == '6') { g_helmetDomeRotationZ -= 5.0f; }
         else if (wParam == 'K') { gBackgroundVisible = !gBackgroundVisible; } // Toggle background visibility
         // Projection and Viewport Controls
         else if (wParam == 'O') { gProjMode = PROJ_ORTHOGRAPHIC; } // Orthographic projection

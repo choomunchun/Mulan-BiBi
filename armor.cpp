@@ -6,6 +6,17 @@
 extern float* segCos;
 extern float* segSin;
 
+// External declarations for helmet configuration variables (defined in main.cpp)
+extern float g_helmetDomeRotationX;
+extern float g_helmetDomeRotationY;
+extern float g_helmetDomeRotationZ;
+extern float g_helmetSideOffsetX;
+extern float g_helmetSideOffsetY;
+extern float g_helmetSideOffsetZ;
+extern float g_helmetBackOffsetX;
+extern float g_helmetBackOffsetY;
+extern float g_helmetBackOffsetZ;
+
 void setArmorMaterial() {
     glColor3f(0.75f, 0.75f, 0.8f);
     glShadeModel(GL_SMOOTH);

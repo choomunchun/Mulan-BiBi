@@ -3,6 +3,12 @@
 #include <gl/GL.h>
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include "texture.h"
+// Honor global mode picked by keys 1/2/3 from your main file:
+extern bool g_TextureEnabled;   // set by setRenderMode(...)
+enum RenderMode { RM_WIREFRAME, RM_SOLID, RM_TEXTURED };
+extern RenderMode gRenderMode;
+
 
 void drawShield()
 {
@@ -13,8 +19,17 @@ void drawShield()
     const float rimWidth = 0.15f;
     const float rimThickness = 0.1f;
 
+    // <<< Apply render mode logic
+    if (gRenderMode == RM_TEXTURED) {
+        Tex::bind(Tex::id[Tex::Shield]);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        Tex::enableObjectLinearST(0.5f, 0.5f, 1.0f);
+    }
+
     // --- 1. Draw the inner, curved face of the shield ---
-    glColor3f(1.0f, 0.84f, 0.0f); // Gold color
+    if (gRenderMode != RM_TEXTURED) {
+        glColor3f(1.0f, 0.84f, 0.0f); // Gold color for solid/wireframe
+    }
     float innerRadius = radius * (1.0f - rimWidth);
 
     for (int i = 0; i < rings; ++i) {
@@ -43,7 +58,9 @@ void drawShield()
     }
 
     // --- 2. Draw the outer rim ---
-    glColor3f(0.9f, 0.74f, 0.0f);
+    if (gRenderMode != RM_TEXTURED) {
+        glColor3f(0.9f, 0.74f, 0.0f); // Darker gold for rim
+    }
     float rim_z = curve * (1.0f - (innerRadius / radius) * (innerRadius / radius));
 
     // Front face of the rim
@@ -81,4 +98,8 @@ void drawShield()
         glVertex3f(radius * c, radius * s, rim_z * 0.8f - rimThickness);
     }
     glEnd();
+    if (gRenderMode == RM_TEXTURED) {
+        Tex::disableObjectLinearST();
+        Tex::unbind();
+    }
 }

@@ -14,6 +14,7 @@
 #include "spear.h"
 #include "shield.h"
 #include "armor.h"
+#include "background.h"
 
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
@@ -52,16 +53,21 @@ bool  gLMBDown = false;
 POINT gLastMouse = { 0, 0 };
 
 // --- Camera State ---
-struct Vec3 { float x, y, z; };
 Vec3  gTarget = { 0.0f, 3.5f, 0.0f };
 float gDist = 15.0f;
 float gYaw = 0.2f;
 float gPitch = 0.1f;
 
+// --- Projection State ---
+enum ProjectionMode { PROJ_PERSPECTIVE = 0, PROJ_ORTHOGRAPHIC = 1 };
+ProjectionMode gProjMode = PROJ_PERSPECTIVE;
+bool gViewportMode = false; // false = full viewport, true = split viewport
+
 // --- Input State ---
 bool keyW = false, keyS = false, keyA = false, keyD = false; // For Camera
 bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift = false; // For Character
 bool keyF = false; // For Fist Animation
+bool keyG = false; // For K-pop Dance Animation
 bool keyX = false; // For Sword Toggle
 bool keyZ = false; // For Sword Hand Switch
 
@@ -70,6 +76,10 @@ bool gSpearVisible = false;
 bool gShieldVisible = false;
 bool gWeaponInRightHand = true; // For both spear and sword
 bool gArmorVisible = false;
+
+// == Background controls
+bool gBackgroundVisible = true; // Background starts visible
+bool keyK = false; // For Background Toggle
 
 LARGE_INTEGER gFreq = { 0 }, gPrev = { 0 };
 
@@ -83,7 +93,7 @@ bool  gIsMoving = false;
 // --- Proportions Control ---
 #define BODY_SCALE 3.5f
 #define ARM_SCALE 0.14f  // Increased for better coverage and gap elimination
-#define HAND_SCALE 0.15f
+#define HAND_SCALE 1.25f  // Increased from 0.15f for larger hands
 
 // --- Jaw Configuration ---
 float JAW_CURVATURE = 3.0f;      // Controls jaw curve smoothness (higher = smoother curve)
@@ -98,6 +108,42 @@ float JAW_TRANSITION = -0.1f;    // Y position where jaw narrowing begins (-0.2 
 // --- Facial Features Scale Configuration ---
 float EYE_SCALE = 1.2f;          // Controls eye size (0.5 = small, 1.0 = normal, 1.5 = large)
 float NOSE_SCALE = 1.0f;         // Controls nose size (0.5 = small, 1.0 = normal, 1.5 = large)
+
+// --- Arm Bend Configuration ---
+float gLeftLowerArmBend = 0.0f;  // Bend angle for left lower arm (positive = bend up)
+float gRightLowerArmBend = 0.0f; // Bend angle for right lower arm (positive = bend up)
+const float MAX_ARM_BEND = 120.0f; // Maximum bend angle in degrees
+
+// --- Boxing Stance Animation ---
+bool gInBoxingStance = false;    // Current stance state
+bool gBoxingAnimActive = false;  // Animation in progress
+float gBoxingAnimTime = 0.0f;    // Animation timer
+const float BOXING_ANIM_DURATION = 1.0f; // Animation duration in seconds
+
+// Relaxed pose (arms hanging down)
+const float RELAXED_SHOULDER_PITCH = 0.0f;
+const float RELAXED_SHOULDER_YAW = 0.0f;
+const float RELAXED_SHOULDER_ROLL = 0.0f;
+const float RELAXED_ELBOW_BEND = 0.0f;
+
+// Boxing stance (guard position)
+const float BOXING_SHOULDER_PITCH = 55.0f;   // Forward rotation 50-60°
+const float BOXING_SHOULDER_YAW = -10.0f;    // Slight inward rotation
+const float BOXING_SHOULDER_ROLL = 180.0f;   // 180-degree arm rotation
+const float BOXING_ELBOW_BEND = 90.0f;       // Elbow bent 80-100°
+
+// Current pose values (interpolated)
+float gCurrentLeftShoulderPitch = 0.0f;
+float gCurrentLeftShoulderYaw = 0.0f;
+float gCurrentLeftShoulderRoll = 0.0f;
+float gCurrentLeftElbowBend = 0.0f;
+float gCurrentRightShoulderPitch = 0.0f;
+float gCurrentRightShoulderYaw = 0.0f;
+float gCurrentRightShoulderRoll = 0.0f;
+float gCurrentRightElbowBend = 0.0f;
+
+// Joint visualization
+bool gShowJointVisuals = true;   // Show joint spheres/boxes
 float MOUTH_SCALE = 1.2f;        // Controls mouth size (0.5 = small, 1.0 = normal, 1.5 = large)
 float EYEBROW_SCALE = 1.0f;      // Controls eyebrow thickness (0.5 = thin, 1.0 = normal, 1.5 = thick)
 float HAIR_SCALE = 1.0f;         // Controls hair volume (0.5 = flat, 1.0 = normal, 1.5 = voluminous)
@@ -116,6 +162,18 @@ float gFistAnimationTime = 0.0f;
 bool gFistAnimationActive = false;
 bool gIsFist = false; // Current state: false = open hand, true = fist
 const float FIST_ANIMATION_DURATION = 1.0f;
+
+// --- K-pop Dance Animation State ---
+bool gIsDancing = false;
+bool gIsJumping = false; // Keep for compatibility with existing jump logic
+float gJumpPhase = 0.0f;            // Jump phase for original jump function compatibility  
+float gDancePhase = 0.0f;           // Current phase of dance (0.0 to 8.0 for 8-second dance)
+float gDanceTime = 0.0f;            // Total dance time elapsed
+float gJumpVerticalOffset = 0.0f;   // Current vertical position offset (used for dance jumps too)
+const float DANCE_SPEED = 4.0f;     // Dance animation speed multiplier
+const float DANCE_DURATION = 8.0f;  // Total dance sequence duration in seconds
+const float JUMP_HEIGHT = 2.0f;     // Maximum jump height for dance moves
+const float JUMP_DURATION = 0.8f;   // Keep original jump duration for compatibility
 
 // --- Kung Fu Pattern State ---
 int gKungFuPattern = 0; // 0 = normal, 1 = crane, 2 = dragon, 3 = tiger
@@ -137,7 +195,8 @@ enum HandForm {
     HAND_CRANE_BEAK = 4,  // Crane beak - fingertips together
     HAND_SWORD_FINGER = 5, // Two fingers extended (sword hand)
     HAND_PALM_STRIKE = 6,   // Open palm ready for striking
-    HAND_GRIP_SPEAR = 7    // for spear
+    HAND_GRIP_SPEAR = 7,   // for spear
+    HAND_GRIP_SWORD = 8    // for sword - proper sword grip
 };
 
 // --- Anime-style Animation Parameters ---
@@ -570,11 +629,26 @@ void drawMulanHair();
 void initializeFistPositions(); // Add fist animation initialization
 void toggleFistAnimation(); // Add fist animation toggle
 void updateFistAnimation(float deltaTime); // Add fist animation update
+void updateBoxingStance(float deltaTime); // Add boxing stance animation update
+void toggleBoxingStance(); // Add boxing stance toggle
+void startJump(); // Start jump animation
+void startDance(); // Start K-pop dance animation
+void updateDance(); // Update dance animation
+void updateJumpAnimation(float deltaTime); // Update jump animation
 Vec3 lerp(const Vec3& a, const Vec3& b, float t); // Linear interpolation
 float smoothStep(float t); // Smooth easing function
 void initializeKungFuSequences(); // Add kung fu animation initialization
 void updateKungFuAnimation(float deltaTime);
 void startKungFuAnimation(int style);
+
+// --- Hand Drawing Function Forward Declarations ---
+void drawConcretePalm(const std::vector<HandJoint>& joints);
+void drawConcreteThumb(const std::vector<HandJoint>& joints);
+void drawConcreteFinger(const std::vector<HandJoint>& joints, int mcpIdx, int pipIdx, int dipIdx, int tipIdx);
+void drawSkinnedPalm(const std::vector<HandJoint>& joints);
+void drawSkinnedPalm2(const std::vector<HandJoint>& joints);
+void drawLowPolyThumb(const std::vector<HandJoint>& joints);
+void drawLowPolyFinger(const std::vector<HandJoint>& joints, int mcpIdx, int pipIdx, int dipIdx, int tipIdx);
 
 // --- Math & Model Building ---
 float dot(const Vec3f& a, const Vec3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
@@ -787,25 +861,31 @@ static void InitializeHand2() {
 
 static void InitializeArm() {
     g_ArmJoints.clear();
-    g_ArmJoints.resize(6);
-    g_ArmJoints[0] = { {0.0f, 0.0f, 0.1f}, -1 };
-    g_ArmJoints[1] = { {0.15f, 0.08f, 1.8f}, 0 };    // Shortened from 2.0f
-    g_ArmJoints[2] = { {0.25f, 0.12f, 3.8f}, 1 };    // Shortened from 4.2f
-    g_ArmJoints[3] = { {0.30f, 0.15f, 6.0f}, 2 };    // Shortened from 6.8f
-    g_ArmJoints[4] = { {0.35f, 0.20f, 8.5f}, 3 };    // Shortened from 9.5f
-    g_ArmJoints[5] = { {0.28f, 0.35f, 10.5f}, 4 };   // Shortened from 12.0f
+    g_ArmJoints.resize(8); // Increased to 8 joints for better arm structure
+    g_ArmJoints[0] = { {0.0f, 0.0f, 0.1f}, -1 };        // Shoulder base
+    g_ArmJoints[1] = { {0.15f, 0.08f, 1.8f}, 0 };       // Upper arm start
+    g_ArmJoints[2] = { {0.25f, 0.12f, 3.8f}, 1 };       // Upper arm mid
+    g_ArmJoints[3] = { {0.30f, 0.15f, 5.8f}, 2 };       // Elbow joint (upper arm end) - extended upper arm
+    // Lower arm starts here and will be transformed based on bend angle
+    g_ArmJoints[4] = { {0.32f, 0.18f, 6.8f}, 3 };       // Lower arm start (from elbow) - shortened gap
+    g_ArmJoints[5] = { {0.28f, 0.22f, 8.2f}, 4 };       // Lower arm mid - shortened
+    g_ArmJoints[6] = { {0.25f, 0.28f, 9.2f}, 5 };       // Lower arm end - shortened  
+    g_ArmJoints[7] = { {0.20f, 0.35f, 9.8f}, 6 };       // Wrist joint - much shorter forearm
 }
 
 static void InitializeArm2() {
     g_ArmJoints2.clear();
-    g_ArmJoints2.resize(6);
+    g_ArmJoints2.resize(8); // Increased to 8 joints for better arm structure
     float flipSign = -1.0f;
-    g_ArmJoints2[0] = { {0.0f * flipSign, 0.0f, 0.1f}, -1 };
-    g_ArmJoints2[1] = { {0.15f * flipSign, 0.08f, 1.8f}, 0 };    // Shortened from 2.0f
-    g_ArmJoints2[2] = { {0.25f * flipSign, 0.12f, 3.8f}, 1 };    // Shortened from 4.2f
-    g_ArmJoints2[3] = { {0.30f * flipSign, 0.15f, 6.0f}, 2 };    // Shortened from 6.8f
-    g_ArmJoints2[4] = { {0.35f * flipSign, 0.20f, 8.5f}, 3 };    // Shortened from 9.5f
-    g_ArmJoints2[5] = { {0.28f * flipSign, 0.35f, 10.5f}, 4 };   // Shortened from 12.0f
+    g_ArmJoints2[0] = { {0.0f * flipSign, 0.0f, 0.1f}, -1 };        // Shoulder base
+    g_ArmJoints2[1] = { {0.15f * flipSign, 0.08f, 1.8f}, 0 };       // Upper arm start
+    g_ArmJoints2[2] = { {0.25f * flipSign, 0.12f, 3.8f}, 1 };       // Upper arm mid
+    g_ArmJoints2[3] = { {0.30f * flipSign, 0.15f, 5.8f}, 2 };       // Elbow joint (upper arm end) - extended upper arm
+    // Lower arm starts here and will be transformed based on bend angle
+    g_ArmJoints2[4] = { {0.32f * flipSign, 0.18f, 6.8f}, 3 };       // Lower arm start (from elbow) - shortened gap
+    g_ArmJoints2[5] = { {0.28f * flipSign, 0.22f, 8.2f}, 4 };       // Lower arm mid - shortened
+    g_ArmJoints2[6] = { {0.25f * flipSign, 0.28f, 9.2f}, 5 };       // Lower arm end - shortened
+    g_ArmJoints2[7] = { {0.20f * flipSign, 0.35f, 9.8f}, 6 };       // Wrist joint - much shorter forearm
 }
 
 void initializeCharacterParts() {
@@ -819,6 +899,7 @@ void initializeCharacterParts() {
     InitializeArm2();
     initializeFistPositions(); // Initialize fist poses
     initializeKungFuSequences(); // Initialize kung fu animation sequences
+    BackgroundRenderer::init(); // Initialize background rendering system
     g_HandTexture = loadTexture("skin.bmp");
     if (g_HandTexture == 0) {
         g_HandTexture = createSkinTexture();
@@ -1254,6 +1335,391 @@ static void drawFingertip(const Vec3& position, float radius) {
     glPopMatrix();
 }
 
+// Draw arm connector segment at the base of the hand to bridge to wrist joint
+static void drawHandArmConnector(const std::vector<HandJoint>& joints) {
+    Vec3 wrist = joints[0].position;
+    
+    // Create arm-like connector extending from hand base toward wrist
+    // Make it extend backward (negative Z direction) from the palm to meet the arm
+    Vec3 connectorStart = { wrist.x, wrist.y, wrist.z - 0.8f };  // Extended back from palm base
+    Vec3 connectorEnd = wrist;
+    
+    // Enable texturing to match the arm
+    if (g_TextureEnabled) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    }
+    else {
+        glDisable(GL_TEXTURE_2D);
+        glColor3f(0.85f, 0.64f, 0.52f); // Skin color to match arm
+    }
+    
+    // Draw the connecting segment using anatomical arm style
+    drawAnatomicalArmSegment(connectorStart, connectorEnd, 1.2f, 0.9f, 0.9f, 0.7f);
+    
+    // Draw a joint at the connection point
+    drawRobotJoint(connectorEnd, 0.12f);
+}
+
+// Draw joint visualization sphere
+static void drawJointSphere(const Vec3& pos, float radius, float r, float g, float b) {
+    if (!gShowJointVisuals) return;
+    
+    glPushMatrix();
+    glTranslatef(pos.x, pos.y, pos.z);
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(r, g, b);
+    
+    // Draw sphere using triangle strips
+    const int slices = 8;
+    const int stacks = 6;
+    
+    for (int i = 0; i < stacks; ++i) {
+        float lat0 = PI * (-0.5f + (float)i / stacks);
+        float lat1 = PI * (-0.5f + (float)(i + 1) / stacks);
+        
+        float y0 = radius * sinf(lat0);
+        float y1 = radius * sinf(lat1);
+        float r0 = radius * cosf(lat0);
+        float r1 = radius * cosf(lat1);
+        
+        glBegin(GL_TRIANGLE_STRIP);
+        for (int j = 0; j <= slices; ++j) {
+            float lng = 2.0f * PI * (float)j / slices;
+            float x0 = r0 * cosf(lng);
+            float z0 = r0 * sinf(lng);
+            float x1 = r1 * cosf(lng);
+            float z1 = r1 * sinf(lng);
+            
+            glVertex3f(x0, y0, z0);
+            glVertex3f(x1, y1, z1);
+        }
+        glEnd();
+    }
+    
+    glPopMatrix();
+}
+
+// Draw joint visualization box
+static void drawJointBox(const Vec3& pos, float size, float r, float g, float b) {
+    if (!gShowJointVisuals) return;
+    
+    glPushMatrix();
+    glTranslatef(pos.x, pos.y, pos.z);
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(r, g, b);
+    
+    float half = size * 0.5f;
+    
+    glBegin(GL_TRIANGLES);
+    
+    // Front face
+    glVertex3f(-half, -half, half);
+    glVertex3f(half, -half, half);
+    glVertex3f(half, half, half);
+    glVertex3f(-half, -half, half);
+    glVertex3f(half, half, half);
+    glVertex3f(-half, half, half);
+    
+    // Back face
+    glVertex3f(half, -half, -half);
+    glVertex3f(-half, -half, -half);
+    glVertex3f(-half, half, -half);
+    glVertex3f(half, -half, -half);
+    glVertex3f(-half, half, -half);
+    glVertex3f(half, half, -half);
+    
+    // Right face
+    glVertex3f(half, -half, half);
+    glVertex3f(half, -half, -half);
+    glVertex3f(half, half, -half);
+    glVertex3f(half, -half, half);
+    glVertex3f(half, half, -half);
+    glVertex3f(half, half, half);
+    
+    // Left face
+    glVertex3f(-half, -half, -half);
+    glVertex3f(-half, -half, half);
+    glVertex3f(-half, half, half);
+    glVertex3f(-half, -half, -half);
+    glVertex3f(-half, half, half);
+    glVertex3f(-half, half, -half);
+    
+    // Top face
+    glVertex3f(-half, half, half);
+    glVertex3f(half, half, half);
+    glVertex3f(half, half, -half);
+    glVertex3f(-half, half, half);
+    glVertex3f(half, half, -half);
+    glVertex3f(-half, half, -half);
+    
+    // Bottom face
+    glVertex3f(-half, -half, -half);
+    glVertex3f(half, -half, -half);
+    glVertex3f(half, -half, half);
+    glVertex3f(-half, -half, -half);
+    glVertex3f(half, -half, half);
+    glVertex3f(-half, -half, half);
+    
+    glEnd();
+    glPopMatrix();
+}
+
+// Smooth interpolation function
+float lerpf(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+// Update boxing stance animation
+void updateBoxingStance(float deltaTime) {
+    if (!gBoxingAnimActive) return;
+    
+    gBoxingAnimTime += deltaTime;
+    float progress = gBoxingAnimTime / BOXING_ANIM_DURATION;
+    
+    if (progress >= 1.0f) {
+        progress = 1.0f;
+        gBoxingAnimActive = false;
+    }
+    
+    // Apply smooth easing
+    float easedProgress = smoothStep(progress);
+    
+    // Determine target values based on stance
+    float targetLeftShoulderPitch, targetLeftShoulderYaw, targetLeftShoulderRoll, targetLeftElbowBend;
+    float targetRightShoulderPitch, targetRightShoulderYaw, targetRightShoulderRoll, targetRightElbowBend;
+    
+    if (gInBoxingStance) {
+        // Transitioning to boxing stance
+        targetLeftShoulderPitch = BOXING_SHOULDER_PITCH;
+        targetLeftShoulderYaw = BOXING_SHOULDER_YAW;
+        targetLeftShoulderRoll = BOXING_SHOULDER_ROLL;   // 180-degree rotation
+        targetLeftElbowBend = BOXING_ELBOW_BEND;
+        targetRightShoulderPitch = BOXING_SHOULDER_PITCH;
+        targetRightShoulderYaw = -BOXING_SHOULDER_YAW; // Mirror for right arm
+        targetRightShoulderRoll = BOXING_SHOULDER_ROLL;  // 180-degree rotation
+        targetRightElbowBend = BOXING_ELBOW_BEND;
+    } else {
+        // Transitioning to relaxed pose
+        targetLeftShoulderPitch = RELAXED_SHOULDER_PITCH;
+        targetLeftShoulderYaw = RELAXED_SHOULDER_YAW;
+        targetLeftShoulderRoll = RELAXED_SHOULDER_ROLL;
+        targetLeftElbowBend = RELAXED_ELBOW_BEND;
+        targetRightShoulderPitch = RELAXED_SHOULDER_PITCH;
+        targetRightShoulderYaw = RELAXED_SHOULDER_YAW;
+        targetRightShoulderRoll = RELAXED_SHOULDER_ROLL;
+        targetRightElbowBend = RELAXED_ELBOW_BEND;
+    }
+    
+    // Interpolate current values
+    gCurrentLeftShoulderPitch = lerpf(RELAXED_SHOULDER_PITCH, targetLeftShoulderPitch, easedProgress);
+    gCurrentLeftShoulderYaw = lerpf(RELAXED_SHOULDER_YAW, targetLeftShoulderYaw, easedProgress);
+    gCurrentLeftShoulderRoll = lerpf(RELAXED_SHOULDER_ROLL, targetLeftShoulderRoll, easedProgress);
+    gCurrentLeftElbowBend = lerpf(RELAXED_ELBOW_BEND, targetLeftElbowBend, easedProgress);
+    gCurrentRightShoulderPitch = lerpf(RELAXED_SHOULDER_PITCH, targetRightShoulderPitch, easedProgress);
+    gCurrentRightShoulderYaw = lerpf(RELAXED_SHOULDER_YAW, targetRightShoulderYaw, easedProgress);
+    gCurrentRightShoulderRoll = lerpf(RELAXED_SHOULDER_ROLL, targetRightShoulderRoll, easedProgress);
+    gCurrentRightElbowBend = lerpf(RELAXED_ELBOW_BEND, targetRightElbowBend, easedProgress);
+}
+
+// Toggle boxing stance
+void toggleBoxingStance() {
+    if (gBoxingAnimActive) return; // Don't interrupt ongoing animation
+    
+    gInBoxingStance = !gInBoxingStance;
+    gBoxingAnimActive = true;
+    gBoxingAnimTime = 0.0f;
+}
+
+// Start jump animation
+void startJump() {
+    if (!gIsJumping) {  // Only start if not already jumping
+        gIsJumping = true;
+        gJumpPhase = 0.0f;
+        gJumpVerticalOffset = 0.0f;
+    }
+}
+
+// Update jump animation
+void updateJumpAnimation(float deltaTime) {
+    if (!gIsJumping) return;
+    
+    // Advance jump phase
+    gJumpPhase += deltaTime / JUMP_DURATION;
+    
+    if (gJumpPhase >= 2.0f) {
+        // Jump complete
+        gIsJumping = false;
+        gJumpPhase = 0.0f;
+        gJumpVerticalOffset = 0.0f;
+    } else {
+        // Calculate vertical offset using a parabolic curve
+        // Phase 0.0 to 1.0 = going up, 1.0 to 2.0 = coming down
+        float normalizedPhase = gJumpPhase;
+        if (normalizedPhase > 1.0f) normalizedPhase = 2.0f - normalizedPhase; // Mirror for descent
+        
+        // Use parabolic curve for natural jump motion
+        gJumpVerticalOffset = JUMP_HEIGHT * (4.0f * normalizedPhase * (1.0f - normalizedPhase));
+    }
+}
+
+// Start K-pop dance animation
+void startDance() {
+    if (!gIsDancing) {  // Only start if not already dancing
+        gIsDancing = true;
+        gDanceTime = 0.0f;
+        gDancePhase = 0.0f;
+        gJumpVerticalOffset = 0.0f;
+        
+        // Reset all pose values to neutral before starting dance
+        g_pose.torsoYaw = g_pose.torsoPitch = g_pose.torsoRoll = 0.0f;
+        g_pose.headYaw = g_pose.headPitch = g_pose.headRoll = 0.0f;
+        gCurrentPose.leftArmAngle = gCurrentPose.rightArmAngle = 0.0f;
+        gCurrentPose.torsoYaw = gCurrentPose.torsoPitch = gCurrentPose.torsoRoll = 0.0f;
+    }
+}
+
+// Update K-pop dance animation with full-body choreography
+void updateDance() {
+    if (!gIsDancing) return;
+    
+    const float deltaTime = 0.016f; // Assuming 60 FPS
+    gDanceTime += deltaTime;
+    gDancePhase = gDanceTime * DANCE_SPEED;
+    
+    if (gDanceTime >= DANCE_DURATION) {
+        // Dance complete - return to neutral pose
+        gIsDancing = false;
+        gDanceTime = 0.0f;
+        gDancePhase = 0.0f;
+        gJumpVerticalOffset = 0.0f;
+        
+        // Reset pose to neutral
+        g_pose.torsoYaw = g_pose.torsoPitch = g_pose.torsoRoll = 0.0f;
+        g_pose.headYaw = g_pose.headPitch = g_pose.headRoll = 0.0f;
+        gCurrentPose.leftArmAngle = gCurrentPose.rightArmAngle = 0.0f;
+        gCurrentPose.torsoYaw = gCurrentPose.torsoPitch = gCurrentPose.torsoRoll = 0.0f;
+        return;
+    }
+    
+    // K-pop dance choreography with 8-second sequence
+    float t = gDancePhase;
+    float beat = fmod(t, 1.0f); // Individual beat within each second
+    int measure = (int)(gDanceTime * 2.0f) % 16; // 16 different measures for variety
+    
+    // === ARM MOVEMENTS (K-pop style) ===
+    float leftArmBase = 0.0f, rightArmBase = 0.0f;
+    
+    if (measure < 2) {
+        // Opening: Arms sweep out and up
+        leftArmBase = -60.0f + sinf(t * 2.0f) * 40.0f;
+        rightArmBase = -60.0f - sinf(t * 2.0f) * 40.0f;
+    } else if (measure < 4) {
+        // Wave motion: Arms create flowing waves
+        leftArmBase = -30.0f + sinf(t * 3.0f) * 50.0f;
+        rightArmBase = -30.0f + sinf(t * 3.0f + PI * 0.5f) * 50.0f;
+    } else if (measure < 6) {
+        // Point and pose: Sharp pointing moves
+        leftArmBase = (beat < 0.5f) ? -80.0f : 20.0f;
+        rightArmBase = (beat < 0.5f) ? 20.0f : -80.0f;
+    } else if (measure < 8) {
+        // Cross and uncross: Arms cross over chest
+        float crossPhase = sinf(t * 4.0f);
+        leftArmBase = crossPhase * -45.0f;
+        rightArmBase = -crossPhase * -45.0f;
+    } else if (measure < 10) {
+        // High energy: Arms pump up and down
+        leftArmBase = -90.0f + cosf(t * 6.0f) * 60.0f;
+        rightArmBase = -90.0f + cosf(t * 6.0f + PI) * 60.0f;
+    } else if (measure < 12) {
+        // Side to side: Arms swing side to side
+        leftArmBase = sinf(t * 2.0f) * -70.0f;
+        rightArmBase = sinf(t * 2.0f) * 70.0f;
+    } else if (measure < 14) {
+        // Hip hop style: One arm up, one down alternating
+        leftArmBase = (sinf(t * 4.0f) > 0) ? -90.0f : 30.0f;
+        rightArmBase = (sinf(t * 4.0f) > 0) ? 30.0f : -90.0f;
+    } else {
+        // Finale: Both arms up in victory pose
+        leftArmBase = -80.0f + sinf(t * 8.0f) * 10.0f;
+        rightArmBase = -80.0f + sinf(t * 8.0f) * 10.0f;
+    }
+    
+    // Apply arm movements
+    gCurrentPose.leftArmAngle = leftArmBase;
+    gCurrentPose.rightArmAngle = rightArmBase;
+    
+    // === TORSO MOVEMENTS ===
+    // Torso sway and rotation
+    g_pose.torsoYaw = sinf(t * 2.5f) * 15.0f;
+    g_pose.torsoPitch = sinf(t * 1.8f) * 8.0f;
+    g_pose.torsoRoll = cosf(t * 3.2f) * 12.0f;
+    
+    // === HEAD MOVEMENTS ===
+    // Head bobs and turns with the beat
+    g_pose.headYaw = sinf(t * 3.0f) * 20.0f;
+    g_pose.headPitch = cosf(t * 4.0f) * 10.0f;
+    g_pose.headRoll = sinf(t * 2.8f) * 8.0f;
+    
+    // === JUMPING AND BODY MOVEMENTS ===
+    // Add periodic jumps during energetic sections
+    if (measure >= 8 && measure < 12) {
+        // High energy section with jumps
+        float jumpCycle = fmod(t * 2.0f, 2.0f);
+        if (jumpCycle < 0.3f) {
+            float jumpPhase = jumpCycle / 0.3f;
+            gJumpVerticalOffset = JUMP_HEIGHT * sinf(jumpPhase * PI) * 0.7f; // Smaller jumps for dance
+        } else {
+            gJumpVerticalOffset = 0.0f;
+        }
+    } else if (measure >= 4 && measure < 6) {
+        // Sharp movements section with small hops
+        gJumpVerticalOffset = (sinf(t * 8.0f) > 0.8f) ? JUMP_HEIGHT * 0.3f : 0.0f;
+    } else {
+        // Ground-based movements
+        gJumpVerticalOffset = sinf(t * 1.5f) * 0.2f; // Subtle body bobbing
+    }
+    
+    // Add extra body dynamics to make it more lively
+    gCurrentPose.torsoYaw += g_pose.torsoYaw;
+    gCurrentPose.torsoPitch += g_pose.torsoPitch;
+    gCurrentPose.torsoRoll += g_pose.torsoRoll;
+}
+
+// Helper function to get transformed wrist position accounting for lower arm bending
+Vec3 getTransformedWristPosition(const std::vector<ArmJoint>& armJoints, float lowerArmBend) {
+    if (armJoints.size() < 8) return {0.0f, 0.0f, 0.0f};
+    
+    Vec3 elbowPos = armJoints[3].position;
+    Vec3 originalWristPos = armJoints[7].position; // Last joint is wrist
+    
+    // Transform wrist position based on elbow bend
+    Vec3 relativePos = { 
+        originalWristPos.x - elbowPos.x, 
+        originalWristPos.y - elbowPos.y, 
+        originalWristPos.z - elbowPos.z 
+    };
+    
+    // Apply rotation around X-axis (pitch rotation for bending up/down)
+    float bendRad = lowerArmBend * PI / 180.0f;
+    float cosB = cosf(bendRad);
+    float sinB = sinf(bendRad);
+    
+    Vec3 rotatedPos = {
+        relativePos.x,
+        relativePos.y * cosB - relativePos.z * sinB,
+        relativePos.y * sinB + relativePos.z * cosB
+    };
+    
+    // Translate back from elbow origin
+    return { 
+        rotatedPos.x + elbowPos.x, 
+        rotatedPos.y + elbowPos.y, 
+        rotatedPos.z + elbowPos.z 
+    };
+}
+
 // Draw complete anatomically complex arm with texture for hand 1
 static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
     if (armJoints.empty()) return;
@@ -1269,29 +1735,270 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
         glColor3f(0.85f, 0.64f, 0.52f); // Skin color for non-textured mode
     }
 
-    // Draw arm segments scaled to match palm size with extended wrist connection
-    Vec3 shoulderSocket = { 0.0f, 0.0f, 0.0f };  // Start from shoulder socket  
-    Vec3 wristConnect = { 0.0f, 0.0f, 0.12f };  // Extended connection to hand (longer reach)
+    // Determine which arm this is and get the appropriate bend angle from boxing stance
+    float lowerArmBend = 0.0f;
+    if (&armJoints == &g_ArmJoints) {
+        lowerArmBend = gCurrentLeftElbowBend;  // Use boxing stance angle
+    } else if (&armJoints == &g_ArmJoints2) {
+        lowerArmBend = gCurrentRightElbowBend; // Use boxing stance angle
+    }
+
+    // Calculate transformed lower arm joint positions when bending
+    std::vector<Vec3> transformedJoints;
+    transformedJoints.resize(armJoints.size());
+    
+    // Copy upper arm joints (0-3) without transformation
+    for (size_t i = 0; i <= 3; ++i) {
+        transformedJoints[i] = armJoints[i].position;
+    }
+    
+    // Transform lower arm joints (4-7) based on elbow bend
+    Vec3 elbowPos = armJoints[3].position;
+    for (size_t i = 4; i < armJoints.size(); ++i) {
+        Vec3 originalPos = armJoints[i].position;
+        // Translate to elbow origin
+        Vec3 relativePos = { originalPos.x - elbowPos.x, originalPos.y - elbowPos.y, originalPos.z - elbowPos.z };
+        
+        // Apply rotation around X-axis (pitch rotation for bending up/down)
+        float bendRad = lowerArmBend * PI / 180.0f;
+        float cosB = cosf(bendRad);
+        float sinB = sinf(bendRad);
+        
+        Vec3 rotatedPos = {
+            relativePos.x,
+            relativePos.y * cosB - relativePos.z * sinB,
+            relativePos.y * sinB + relativePos.z * cosB
+        };
+        
+        // Translate back from elbow origin
+        transformedJoints[i] = { 
+            rotatedPos.x + elbowPos.x, 
+            rotatedPos.y + elbowPos.y, 
+            rotatedPos.z + elbowPos.z 
+        };
+    }
+
+    // Draw arm segments - upper arm (shoulder to elbow)
+    Vec3 shoulderSocket = { 0.0f, 0.0f, 0.0f };  // Start from shoulder socket
+    Vec3 wristConnect = { 0.0f, 0.0f, 0.12f };  // Extended connection to hand
 
     // Add shoulder connector piece
     drawAnatomicalArmSegment(shoulderSocket, { 0.0f, -0.1f, 0.0f }, 1.2f, 1.0f, 1.0f, 0.8f);
 
-    drawAnatomicalArmSegment(wristConnect, armJoints[1].position, 0.9f, 0.7f, 0.7f, 0.5f);
-    drawAnatomicalArmSegment(armJoints[1].position, armJoints[2].position, 1.0f, 0.8f, 0.8f, 0.6f);
-    drawAnatomicalArmSegment(armJoints[2].position, armJoints[3].position, 1.1f, 0.9f, 0.9f, 0.65f);
-    drawAnatomicalArmSegment(armJoints[3].position, armJoints[4].position, 1.05f, 0.85f, 0.85f, 0.7f);
-    drawAnatomicalArmSegment(armJoints[4].position, armJoints[5].position, 1.3f, 1.0f, 1.1f, 0.8f);
+    // Upper arm segments (joints 0-3) - use original positions
+    drawAnatomicalArmSegment(wristConnect, transformedJoints[1], 0.9f, 0.7f, 0.7f, 0.5f);
+    drawAnatomicalArmSegment(transformedJoints[1], transformedJoints[2], 1.0f, 0.8f, 0.8f, 0.6f);
+    drawAnatomicalArmSegment(transformedJoints[2], transformedJoints[3], 1.1f, 0.9f, 0.9f, 0.65f);
 
-    // Add wrist extension segment to bridge gap to hand
-    Vec3 wristExtend = { 0.0f, 0.02f, 0.18f };  // Final bridge to hand
-    drawAnatomicalArmSegment(armJoints[5].position, wristExtend, 1.1f, 0.8f, 0.8f, 0.6f);
+    // Lower arm segments (joints 3-7) - use transformed positions
+    drawAnatomicalArmSegment(transformedJoints[3], transformedJoints[4], 1.05f, 0.85f, 0.85f, 0.7f);
+    drawAnatomicalArmSegment(transformedJoints[4], transformedJoints[5], 1.0f, 0.8f, 0.8f, 0.65f);
+    drawAnatomicalArmSegment(transformedJoints[5], transformedJoints[6], 0.95f, 0.75f, 0.75f, 0.6f);
+    drawAnatomicalArmSegment(transformedJoints[6], transformedJoints[7], 0.9f, 0.7f, 0.7f, 0.55f);
 
-    // Draw joints
+    // Add wrist extension that bridges directly to hand positioning
+    // This extension should match exactly where the hand will be positioned
+    Vec3 wristToHandBridge = { 
+        transformedJoints[7].x, 
+        transformedJoints[7].y + 0.02f,  // Small Y offset matching hand positioning
+        transformedJoints[7].z + 0.15f   // Bridge forward to where hand base will be
+    };
+    drawAnatomicalArmSegment(transformedJoints[7], wristToHandBridge, 0.85f, 0.65f, 0.65f, 0.5f);
+
+    // Draw joints using transformed positions
     for (size_t i = 1; i < armJoints.size(); ++i) {
-        Vec3 pos = armJoints[i].position;
+        Vec3 pos = transformedJoints[i];
         float jointSize = 0.15f + i * 0.02f;
         drawRobotJoint(pos, jointSize);
     }
+
+    // ========== INTEGRATED HAND DRAWING ==========
+    // Draw the hand directly attached to the final wrist joint
+    glPushMatrix();
+    
+    // Move to the exact transformed wrist position
+    Vec3 finalWrist = transformedJoints[7];
+    glTranslatef(finalWrist.x, finalWrist.y, finalWrist.z);
+    
+    // Add small offset to position hand properly relative to wrist
+    glTranslatef(0.0f, 0.02f, 0.15f);
+    
+    // Determine which hand this is and apply appropriate rotations
+    if (&armJoints == &g_ArmJoints) {
+        // Left hand - rotate based on boxing stance
+        if (gInBoxingStance) {
+            // Boxing stance: palm facing down
+            glRotatef(90.0f, 1.0f, 0.0f, 0.0f);  // Rotate around X-axis to make palm face down
+            glRotatef(180.0f, 0.0f, 0.0f, 1.0f); // Additional Z rotation for proper orientation
+        } else {
+            // Normal stance: palm facing forward
+            glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
+        }
+    } else if (&armJoints == &g_ArmJoints2) {
+        // Right hand - rotate based on boxing stance
+        if (gInBoxingStance) {
+            // Boxing stance: palm facing down
+            glRotatef(90.0f, 1.0f, 0.0f, 0.0f);  // Rotate around X-axis to make palm face down
+            glRotatef(180.0f, 0.0f, 0.0f, 1.0f); // Additional Z rotation for proper orientation
+        } else {
+            // Normal stance: palm facing forward
+            glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
+        }
+    }
+    
+    // Scale the hand appropriately
+    glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f);
+    
+    // Draw the appropriate hand
+    if (&armJoints == &g_ArmJoints) {
+        // Left hand
+        if (gConcreteHands) {
+            // Draw concrete hands
+            glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
+            drawConcretePalm(g_HandJoints);
+            drawConcreteThumb(g_HandJoints);
+            drawConcreteFinger(g_HandJoints, 5, 6, 7, 8);
+            drawConcreteFinger(g_HandJoints, 9, 10, 11, 12);
+            drawConcreteFinger(g_HandJoints, 13, 14, 15, 16);
+            drawConcreteFinger(g_HandJoints, 17, 18, 19, 20);
+        }
+        else {
+            // Draw skin hands
+            if (g_TextureEnabled && g_HandTexture != 0) {
+                glEnable(GL_TEXTURE_2D);
+                glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+                glColor3f(1.0f, 1.0f, 1.0f);
+            }
+            drawSkinnedPalm(g_HandJoints);
+            drawLowPolyThumb(g_HandJoints);
+            drawLowPolyFinger(g_HandJoints, 5, 6, 7, 8);
+            drawLowPolyFinger(g_HandJoints, 9, 10, 11, 12);
+            drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
+            drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
+        }
+    } else if (&armJoints == &g_ArmJoints2) {
+        // Right hand
+        if (gConcreteHands) {
+            // Draw concrete hands
+            glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
+            drawConcretePalm(g_HandJoints2);
+            drawConcreteThumb(g_HandJoints2);
+            drawConcreteFinger(g_HandJoints2, 5, 6, 7, 8);
+            drawConcreteFinger(g_HandJoints2, 9, 10, 11, 12);
+            drawConcreteFinger(g_HandJoints2, 13, 14, 15, 16);
+            drawConcreteFinger(g_HandJoints2, 17, 18, 19, 20);
+        }
+        else {
+            // Draw skin hands
+            if (g_TextureEnabled && g_HandTexture != 0) {
+                glEnable(GL_TEXTURE_2D);
+                glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+                glColor3f(1.0f, 1.0f, 1.0f);
+            }
+            drawSkinnedPalm2(g_HandJoints2);
+            drawLowPolyThumb(g_HandJoints2);
+            drawLowPolyFinger(g_HandJoints2, 5, 6, 7, 8);
+            drawLowPolyFinger(g_HandJoints2, 9, 10, 11, 12);
+            drawLowPolyFinger(g_HandJoints2, 13, 14, 15, 16);
+            drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
+        }
+    }
+    
+    glPopMatrix();
+    // ========== END INTEGRATED HAND DRAWING ==========
+    
+    // ========== JOINT VISUALIZATIONS ==========
+    // Draw elbow joint sphere (pivot point) - bright red
+    drawJointSphere(transformedJoints[3], 0.08f, 1.0f, 0.0f, 0.0f);
+    
+    // Draw wrist joint box (end of lower arm) - bright green
+    drawJointBox(transformedJoints[7], 0.1f, 0.0f, 1.0f, 0.0f);
+    
+    // Draw additional joint markers for better visualization
+    for (size_t i = 1; i < transformedJoints.size(); ++i) {
+        Vec3 pos = transformedJoints[i];
+        if (i == 3) {
+            // Elbow - larger red sphere
+            drawJointSphere(pos, 0.1f, 1.0f, 0.0f, 0.0f);
+        } else if (i == 7) {
+            // Wrist - green box
+            drawJointBox(pos, 0.08f, 0.0f, 1.0f, 0.0f);
+        } else {
+            // Other joints - small yellow spheres
+            drawJointSphere(pos, 0.05f, 1.0f, 1.0f, 0.0f);
+        }
+    }
+    // ========== END JOINT VISUALIZATIONS ==========
+}
+
+// Draw a connecting segment from wrist joint to palm base to ensure seamless connection
+static void drawWristToPalmConnector(const Vec3& wristJointPos, const Vec3& palmBasePos) {
+    if (g_TextureEnabled) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    }
+    else {
+        glDisable(GL_TEXTURE_2D);
+        glColor3f(0.85f, 0.64f, 0.52f); // Skin color
+    }
+
+    // Create a simple cylindrical connector
+    const int sides = 8;
+    float angleStep = 2.0f * PI / sides;
+    float radius = 0.12f; // Connector radius
+
+    glBegin(GL_TRIANGLES);
+    
+    // Cylindrical sides connecting wrist to palm
+    for (int i = 0; i < sides; i++) {
+        int next = (i + 1) % sides;
+        
+        float angle1 = i * angleStep;
+        float angle2 = next * angleStep;
+        
+        float x1 = cosf(angle1) * radius;
+        float y1 = sinf(angle1) * radius;
+        float x2 = cosf(angle2) * radius;
+        float y2 = sinf(angle2) * radius;
+        
+        // First triangle
+        glNormal3f((x1 + x2) * 0.5f, (y1 + y2) * 0.5f, 0.0f);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(wristJointPos.x + x1, wristJointPos.y + y1, wristJointPos.z);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(wristJointPos.x + x2, wristJointPos.y + y2, wristJointPos.z);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(palmBasePos.x + x2, palmBasePos.y + y2, palmBasePos.z);
+        
+        // Second triangle
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(wristJointPos.x + x1, wristJointPos.y + y1, wristJointPos.z);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(palmBasePos.x + x2, palmBasePos.y + y2, palmBasePos.z);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(palmBasePos.x + x1, palmBasePos.y + y1, palmBasePos.z);
+    }
+    
+    glEnd();
+}
+
+// Draw a connecting segment from hand base toward the wrist to ensure seamless connection
+static void drawHandEdgeConnector() {
+    if (g_TextureEnabled) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    }
+    else {
+        glDisable(GL_TEXTURE_2D);
+        glColor3f(0.85f, 0.64f, 0.52f); // Skin color
+    }
+    
+    // Draw connector segment from hand base backward to bridge any gap to wrist
+    // This creates a seamless connection between the wrist extension and hand
+    Vec3 handBase = { 0.0f, 0.0f, -0.1f };      // Hand base position (relative to hand coordinate system)
+    Vec3 wristBridge = { 0.0f, -0.02f, -0.25f }; // Connect back toward wrist extension point
+    
+    // Draw the bridging segment using the anatomical arm segment function for consistency
+    drawAnatomicalArmSegment(wristBridge, handBase, 0.8f, 0.6f, 0.6f, 0.45f);
+    
+    // Add a joint at the connection point for visual consistency
+    drawRobotJoint(wristBridge, 0.12f);
 }
 
 // Draw enhanced palm with comprehensive finger connections like main_hand.cpp
@@ -1308,16 +2015,16 @@ static void drawSkinnedPalm(const std::vector<HandJoint>& joints) {
     const int GRID_HEIGHT = 7;  // More layers for smooth transitions
     Vec3 palmGrid[GRID_HEIGHT][GRID_WIDTH];
 
-    // Layer 0: Extended wrist base (reaching back toward arm) 
-    palmGrid[0][0] = { wrist.x - 0.6f, wrist.y - 0.02f, wrist.z - 0.25f };   // Extended backward
-    palmGrid[0][1] = { wrist.x - 0.42f, wrist.y - 0.01f, wrist.z - 0.23f };  // Extended backward
-    palmGrid[0][2] = { wrist.x - 0.26f, wrist.y + 0.0f, wrist.z - 0.21f };   // Extended backward
-    palmGrid[0][3] = { wrist.x - 0.12f, wrist.y + 0.01f, wrist.z - 0.20f };  // Extended backward
-    palmGrid[0][4] = { wrist.x + 0.0f, wrist.y + 0.02f, wrist.z - 0.19f };   // Extended backward
-    palmGrid[0][5] = { wrist.x + 0.12f, wrist.y + 0.01f, wrist.z - 0.20f };  // Extended backward
-    palmGrid[0][6] = { wrist.x + 0.26f, wrist.y + 0.0f, wrist.z - 0.21f };   // Extended backward
-    palmGrid[0][7] = { wrist.x + 0.42f, wrist.y - 0.01f, wrist.z - 0.23f };  // Extended backward
-    palmGrid[0][8] = { wrist.x + 0.6f, wrist.y - 0.02f, wrist.z - 0.25f };   // Extended backward
+    // Layer 0: Extended wrist base (reaching back toward arm) - MAXIMALLY EXTENDED for guaranteed connection
+    palmGrid[0][0] = { wrist.x - 0.8f, wrist.y - 0.05f, wrist.z - 0.6f };   // Much further back
+    palmGrid[0][1] = { wrist.x - 0.6f, wrist.y - 0.03f, wrist.z - 0.55f };  // Much further back
+    palmGrid[0][2] = { wrist.x - 0.4f, wrist.y - 0.01f, wrist.z - 0.5f };   // Much further back
+    palmGrid[0][3] = { wrist.x - 0.2f, wrist.y + 0.0f, wrist.z - 0.47f };   // Much further back
+    palmGrid[0][4] = { wrist.x + 0.0f, wrist.y + 0.01f, wrist.z - 0.45f };  // Much further back
+    palmGrid[0][5] = { wrist.x + 0.2f, wrist.y + 0.0f, wrist.z - 0.47f };   // Much further back
+    palmGrid[0][6] = { wrist.x + 0.4f, wrist.y - 0.01f, wrist.z - 0.5f };   // Much further back
+    palmGrid[0][7] = { wrist.x + 0.6f, wrist.y - 0.03f, wrist.z - 0.55f };  // Much further back
+    palmGrid[0][8] = { wrist.x + 0.8f, wrist.y - 0.05f, wrist.z - 0.6f };   // Much further back
 
     // Layer 1: Lower palm transition
     palmGrid[1][0] = { wrist.x - 0.52f, wrist.y + 0.08f, wrist.z + 0.05f };
@@ -1573,16 +2280,16 @@ static void drawSkinnedPalm2(const std::vector<HandJoint>& joints) {
 
     // Use exact same grid structure as palm 1 for consistent coverage
 
-    // Layer 0: Wrist base (extended coverage)
-    palmGrid[0][0] = { wrist.x - 0.6f, wrist.y - 0.02f, wrist.z - 0.15f };
-    palmGrid[0][1] = { wrist.x - 0.42f, wrist.y - 0.01f, wrist.z - 0.13f };
-    palmGrid[0][2] = { wrist.x - 0.26f, wrist.y + 0.0f, wrist.z - 0.11f };
-    palmGrid[0][3] = { wrist.x - 0.12f, wrist.y + 0.01f, wrist.z - 0.1f };
-    palmGrid[0][4] = { wrist.x + 0.0f, wrist.y + 0.02f, wrist.z - 0.09f };
-    palmGrid[0][5] = { wrist.x + 0.12f, wrist.y + 0.01f, wrist.z - 0.1f };
-    palmGrid[0][6] = { wrist.x + 0.26f, wrist.y + 0.0f, wrist.z - 0.11f };
-    palmGrid[0][7] = { wrist.x + 0.42f, wrist.y - 0.01f, wrist.z - 0.13f };
-    palmGrid[0][8] = { wrist.x + 0.6f, wrist.y - 0.02f, wrist.z - 0.15f };
+    // Layer 0: Wrist base (MAXIMALLY EXTENDED for guaranteed connection)
+    palmGrid[0][0] = { wrist.x - 0.8f, wrist.y - 0.05f, wrist.z - 0.6f };   // Much further back
+    palmGrid[0][1] = { wrist.x - 0.6f, wrist.y - 0.03f, wrist.z - 0.55f };  // Much further back
+    palmGrid[0][2] = { wrist.x - 0.4f, wrist.y - 0.01f, wrist.z - 0.5f };   // Much further back
+    palmGrid[0][3] = { wrist.x - 0.2f, wrist.y + 0.0f, wrist.z - 0.47f };   // Much further back
+    palmGrid[0][4] = { wrist.x + 0.0f, wrist.y + 0.01f, wrist.z - 0.45f };  // Much further back
+    palmGrid[0][5] = { wrist.x + 0.2f, wrist.y + 0.0f, wrist.z - 0.47f };   // Much further back
+    palmGrid[0][6] = { wrist.x + 0.4f, wrist.y - 0.01f, wrist.z - 0.5f };   // Much further back
+    palmGrid[0][7] = { wrist.x + 0.6f, wrist.y - 0.03f, wrist.z - 0.55f };  // Much further back
+    palmGrid[0][8] = { wrist.x + 0.8f, wrist.y - 0.05f, wrist.z - 0.6f };   // Much further back
 
     // Layer 1: Lower palm transition
     palmGrid[1][0] = { wrist.x - 0.52f, wrist.y + 0.08f, wrist.z + 0.05f };
@@ -2044,6 +2751,39 @@ void setHandForm(std::vector<HandJoint>& joints, HandForm form) {
         joints[18].position = { -0.6f, 0.0f, 1.5f };
         joints[19].position = { -0.6f, 0.0f, 1.9f };
         joints[20].position = { -0.6f, 0.0f, 2.2f };
+        break;
+    }
+
+    case HAND_GRIP_SWORD: { // Proper sword grip - fingers wrapped around hilt
+        // Thumb - wrapped around grip
+        joints[1].position = { 0.5f, -0.1f, 0.4f };
+        joints[2].position = { 0.6f, -0.2f, 0.6f };
+        joints[3].position = { 0.5f, -0.3f, 0.8f };
+        joints[4].position = { 0.4f, -0.4f, 1.0f };
+
+        // Index finger - wrapped around hilt
+        joints[5].position = { 0.2f, 0.1f, 1.0f };
+        joints[6].position = { 0.1f, -0.1f, 1.4f };
+        joints[7].position = { 0.0f, -0.3f, 1.6f };
+        joints[8].position = { -0.1f, -0.5f, 1.5f };
+
+        // Middle finger - firmly gripping
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { -0.1f, -0.1f, 1.5f };
+        joints[11].position = { -0.2f, -0.3f, 1.7f };
+        joints[12].position = { -0.3f, -0.5f, 1.6f };
+
+        // Ring finger - supporting grip
+        joints[13].position = { -0.2f, 0.1f, 1.0f };
+        joints[14].position = { -0.3f, -0.1f, 1.4f };
+        joints[15].position = { -0.4f, -0.3f, 1.6f };
+        joints[16].position = { -0.5f, -0.5f, 1.5f };
+
+        // Pinky - completing the grip
+        joints[17].position = { -0.4f, 0.05f, 0.8f };
+        joints[18].position = { -0.5f, -0.1f, 1.1f };
+        joints[19].position = { -0.6f, -0.3f, 1.3f };
+        joints[20].position = { -0.7f, -0.5f, 1.2f };
         break;
     }
 
@@ -3113,6 +3853,30 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         g_HandJoints[0].position = leftWristBackup;
         g_HandJoints2[0].position = rightWristBackup;
     }
+    else if (gBoxingAnimActive || gInBoxingStance) {
+        // Use boxing stance pose values
+        leftShoulderPitch = gCurrentLeftShoulderPitch;
+        rightShoulderPitch = gCurrentRightShoulderPitch;
+        leftShoulderYaw = gCurrentLeftShoulderYaw;
+        rightShoulderYaw = gCurrentRightShoulderYaw;
+        leftShoulderRoll = gCurrentLeftShoulderRoll;   // Use the 180-degree rotation
+        rightShoulderRoll = gCurrentRightShoulderRoll; // Use the 180-degree rotation
+        
+        // Boxing stance doesn't affect leg animation angles
+        // leftArmAngle and rightArmAngle remain as they are
+        
+        // Note: elbow bending is now handled in drawLowPolyArm via gCurrentLeftElbowBend/gCurrentRightElbowBend
+        leftElbowBend = 0.0f; // Not used anymore, handled in arm drawing
+        rightElbowBend = 0.0f; // Not used anymore, handled in arm drawing
+        
+        // Make fists in boxing stance for realistic look
+        if (g_FistHandJoints.size() == g_HandJoints.size()) {
+            g_HandJoints = g_FistHandJoints;
+        }
+        if (g_FistHandJoints2.size() == g_HandJoints2.size()) {
+            g_HandJoints2 = g_FistHandJoints2;
+        }
+    }
     else {
         // Use default poses and restore original hand positions
         leftShoulderPitch = 90.0f + leftArmAngle;
@@ -3132,18 +3896,18 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
         // Restore original hand joint positions when not animating (but preserve fist animation)
         // Also check if we need to make a fist for holding the sword
-        bool needLeftFist = gSwordVisible && !gSwordInRightHand;
-        bool needRightFist = gSwordVisible && gSwordInRightHand;
+        bool needLeftSwordGrip = gSwordVisible && !gWeaponInRightHand;
+        bool needRightSwordGrip = gSwordVisible && gWeaponInRightHand;
         bool needLeftSpearGrip = gSpearVisible && !gWeaponInRightHand;
         bool needRightSpearGrip = gSpearVisible && gWeaponInRightHand;
 
-        if (!gFistAnimationActive && !gIsFist && !needLeftFist && !needRightFist && !needLeftSpearGrip && !needRightSpearGrip) {
+        if (!gFistAnimationActive && !gIsFist && !needLeftSwordGrip && !needRightSwordGrip && !needLeftSpearGrip && !needRightSpearGrip) {
             if (g_OriginalHandJoints.size() == g_HandJoints.size()) g_HandJoints = g_OriginalHandJoints;
             if (g_OriginalHandJoints2.size() == g_HandJoints2.size()) g_HandJoints2 = g_OriginalHandJoints2;
         }
 
-        if (needLeftFist) setHandForm(g_HandJoints, HAND_FIST);
-        if (needRightFist) setHandForm(g_HandJoints2, HAND_FIST);
+        if (needLeftSwordGrip) setHandForm(g_HandJoints, HAND_GRIP_SWORD);
+        if (needRightSwordGrip) setHandForm(g_HandJoints2, HAND_GRIP_SWORD);
         if (needLeftSpearGrip) setHandForm(g_HandJoints, HAND_GRIP_SPEAR);
         if (needRightSpearGrip) setHandForm(g_HandJoints2, HAND_GRIP_SPEAR);
     }
@@ -3223,74 +3987,29 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
         Vec3 elbowPos = g_ArmJoints[3].position;
         glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
-        glRotatef(leftElbowBend - 15.0f, 1.0f, 0.0f, 0.0f);  // Use animated elbow bend
+        glRotatef(gLeftLowerArmBend, 1.0f, 0.0f, 0.0f);  // Use new lower arm bend system
         glTranslatef(-elbowPos.x * ARM_SCALE, -elbowPos.y * ARM_SCALE, -elbowPos.z * ARM_SCALE);
 
-        Vec3 leftWristPos = g_ArmJoints.back().position;
+        // Get transformed wrist position that accounts for lower arm bending
+        Vec3 leftWristPos = getTransformedWristPosition(g_ArmJoints, gLeftLowerArmBend);
         glTranslatef(leftWristPos.x * ARM_SCALE, leftWristPos.y * ARM_SCALE, leftWristPos.z * ARM_SCALE);
         glRotatef(leftWristPitch, 1.0f, 0.0f, 0.0f);  // Use animated wrist pitch
         glRotatef(leftWristYaw, 0.0f, 1.0f, 0.0f);    // Use animated wrist yaw
         glRotatef(leftWristRoll, 0.0f, 0.0f, 1.0f);   // Use animated wrist roll
 
         // Add sword grip rotation to the wrist joint so arm stays connected
-        if (gSwordVisible && !gSwordInRightHand) {
+        if (gSwordVisible && !gWeaponInRightHand) {
             glRotatef(-45.0f, 0.0f, 1.0f, 0.0f); // Rotate wrist 45 degrees for natural sword grip
         }
 
-        glPushMatrix();
-        // Better connection to arm wrist - adjust gap based on sword grip
-        if (gSwordVisible && !gSwordInRightHand) {
-            glTranslatef(0.0f, 0.02f, -0.01f);  // Minimal gap for sword grip
-        }
-        else {
-            glTranslatef(0.0f, 0.02f, -0.02f);  // Tighter connection when not holding sword
-        }
-        // Rotate left hand 180 degrees around Y-axis to make palm face forward
-        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
-
-        glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f); // Extended Z-scale for longer palm
-
-        // Apply fist for sword grip right before drawing left hand
-        if (gSwordVisible && !gSwordInRightHand) {
-            // Copy fist positions directly from g_FistHandJoints
-            if (g_FistHandJoints.size() == g_HandJoints.size()) {
-                for (size_t i = 0; i < g_HandJoints.size(); ++i) {
-                    g_HandJoints[i].position = g_FistHandJoints[i].position;
-                }
-            }
-        }
-
-        if (gConcreteHands) {
-            // Draw concrete hands
-            glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
-            drawConcretePalm(g_HandJoints);
-            drawConcreteThumb(g_HandJoints);
-            drawConcreteFinger(g_HandJoints, 5, 6, 7, 8);
-            drawConcreteFinger(g_HandJoints, 9, 10, 11, 12);
-            drawConcreteFinger(g_HandJoints, 13, 14, 15, 16);
-            drawConcreteFinger(g_HandJoints, 17, 18, 19, 20);
-        }
-        else {
-            // Draw skin hands
-            if (g_TextureEnabled && g_HandTexture != 0) {
-                glEnable(GL_TEXTURE_2D);
-                glBindTexture(GL_TEXTURE_2D, g_HandTexture);
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            drawSkinnedPalm(g_HandJoints);
-            drawLowPolyThumb(g_HandJoints);
-            drawLowPolyFinger(g_HandJoints, 5, 6, 7, 8);
-            drawLowPolyFinger(g_HandJoints, 9, 10, 11, 12);
-            drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
-            drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
-        }
-        glPopMatrix();
+        // NOTE: Hand is now drawn integrated within drawLowPolyArm() function
+        // No separate hand drawing needed here - it's part of the arm hierarchy
 
         // Draw sword in left hand if enabled
-        if (gSwordVisible && !gSwordInRightHand) {
+        if (gSwordVisible && !gWeaponInRightHand) {
             glPushMatrix();
             // Position sword in front of hand for proper grip
-            glTranslatef(0.0f, 0.0f, 0.3f); // Move sword forward in front of hand
+            glTranslatef(0.13f, 0.05f, 0.3f); // Move sword forward in front of hand (mirrored from right hand)
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward (same as right hand)
             glRotatef(-15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip (opposite direction)
             // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
@@ -3345,10 +4064,11 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
         Vec3 rightElbowPos = g_ArmJoints2[3].position;
         glTranslatef(rightElbowPos.x * ARM_SCALE, rightElbowPos.y * ARM_SCALE, rightElbowPos.z * ARM_SCALE);
-        glRotatef(rightElbowBend - 15.0f, 1.0f, 0.0f, 0.0f);  // Use animated elbow bend
+        glRotatef(gRightLowerArmBend, 1.0f, 0.0f, 0.0f);  // Use new lower arm bend system
         glTranslatef(-rightElbowPos.x * ARM_SCALE, -rightElbowPos.y * ARM_SCALE, -rightElbowPos.z * ARM_SCALE);
 
-        Vec3 rightWristPos = g_ArmJoints2.back().position;
+        // Get transformed wrist position that accounts for lower arm bending
+        Vec3 rightWristPos = getTransformedWristPosition(g_ArmJoints2, gRightLowerArmBend);
         glTranslatef(rightWristPos.x * ARM_SCALE, rightWristPos.y * ARM_SCALE, rightWristPos.z * ARM_SCALE);
         glRotatef(rightWristPitch, 1.0f, 0.0f, 0.0f);  // Use animated wrist pitch
         glRotatef(rightWristYaw, 0.0f, 1.0f, 0.0f);    // Use animated wrist yaw  
@@ -3364,64 +4084,18 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             drawSpear();
             glPopMatrix();
         }
-        if (gSwordVisible && gSwordInRightHand) {
+        if (gSwordVisible && gWeaponInRightHand) {
             glRotatef(45.0f, 0.0f, 1.0f, 0.0f); // Rotate wrist 45 degrees for natural sword grip
         }
 
-        glPushMatrix();
-        // Better connection to arm wrist - adjust gap based on sword grip
-        if (gSwordVisible && gSwordInRightHand) {
-            glTranslatef(0.0f, 0.02f, -0.01f);  // Minimal gap for sword grip
-        }
-        else {
-            glTranslatef(0.0f, 0.02f, -0.02f);  // Tighter connection when not holding sword
-        }
-        // Rotate right hand 180 degrees around Y-axis to make palm face forward
-        glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
-
-        glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f); // Extended Z-scale for longer palm
-
-        // Apply fist for sword grip right before drawing right hand
-        if (gSwordVisible && gSwordInRightHand) {
-            // Copy fist positions directly from g_FistHandJoints2
-            if (g_FistHandJoints2.size() == g_HandJoints2.size()) {
-                for (size_t i = 0; i < g_HandJoints2.size(); ++i) {
-                    g_HandJoints2[i].position = g_FistHandJoints2[i].position;
-                }
-            }
-        }
-
-        if (gConcreteHands) {
-            // Draw concrete hands
-            glColor3f(0.6f, 0.6f, 0.65f); // Concrete color
-            drawConcretePalm(g_HandJoints2);
-            drawConcreteThumb(g_HandJoints2);
-            drawConcreteFinger(g_HandJoints2, 5, 6, 7, 8);
-            drawConcreteFinger(g_HandJoints2, 9, 10, 11, 12);
-            drawConcreteFinger(g_HandJoints2, 13, 14, 15, 16);
-            drawConcreteFinger(g_HandJoints2, 17, 18, 19, 20);
-        }
-        else {
-            // Draw skin hands
-            if (g_TextureEnabled && g_HandTexture != 0) {
-                glEnable(GL_TEXTURE_2D);
-                glBindTexture(GL_TEXTURE_2D, g_HandTexture);
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            drawSkinnedPalm2(g_HandJoints2);
-            drawLowPolyThumb(g_HandJoints2);
-            drawLowPolyFinger(g_HandJoints2, 5, 6, 7, 8);
-            drawLowPolyFinger(g_HandJoints2, 9, 10, 11, 12);
-            drawLowPolyFinger(g_HandJoints2, 13, 14, 15, 16);
-            drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
-        }
-        glPopMatrix();
+        // NOTE: Hand is now drawn integrated within drawLowPolyArm() function
+        // No separate hand drawing needed here - it's part of the arm hierarchy
 
         // Draw sword in right hand if enabled
-        if (gSwordVisible && gSwordInRightHand) {
+        if (gSwordVisible && gWeaponInRightHand) {
             glPushMatrix();
             // Position sword in front of hand for proper grip
-            glTranslatef(0.0f, 0.0f, 0.3f); // Move sword forward in front of hand
+            glTranslatef(-0.13f, 0.05f, 0.3f); // Move sword forward in front of hand (moved left by 0.3)
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward
             glRotatef(15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip
             // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
@@ -3460,28 +4134,67 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
     glPopMatrix();
 }
 
-void display() {
-    glClearColor(0.6f, 0.3f, 0.7f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+// ===================================================================
+//
+// SECTION: PROJECTION & VIEWPORT FUNCTIONS
+//
+// ===================================================================
 
-    glMatrixMode(GL_PROJECTION); glLoadIdentity();
-    gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
+void setupProjection() {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    
+    if (gViewportMode) {
+        // Split viewport mode - show both orthographic and perspective
+        int halfWidth = gWidth / 2;
+        
+        // Left half - Orthographic
+        glViewport(0, 0, halfWidth, gHeight);
+        float orthoSize = gDist * 0.5f; // Scale orthographic view based on distance
+        float aspect = (float)halfWidth / gHeight;
+        glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
+    } else {
+        // Full viewport mode
+        glViewport(0, 0, gWidth, gHeight);
+        
+        if (gProjMode == PROJ_ORTHOGRAPHIC) {
+            // Orthographic projection
+            float orthoSize = gDist * 0.5f; // Scale based on camera distance
+            float aspect = (float)gWidth / gHeight;
+            glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
+        } else {
+            // Perspective projection
+            gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
+        }
+    }
+}
 
-    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
-    gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+void setupSplitViewportPerspective() {
+    // Right half - Perspective (for split viewport mode)
+    int halfWidth = gWidth / 2;
+    glViewport(halfWidth, 0, halfWidth, gHeight);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluPerspective(45.0, (double)halfWidth / gHeight, 0.1, 100.0);
+}
 
+void renderScene() {
+    // Render background first (if enabled)
+    if (gBackgroundVisible) {
+        BackgroundRenderer::render();
+    }
+    
+    // Common scene rendering logic for both orthographic and perspective modes
+    
     glPolygonMode(GL_FRONT_AND_BACK, gShowWireframe ? GL_LINE : GL_FILL);
 
     glEnable(GL_LIGHTING); glEnable(GL_LIGHT0); glEnable(GL_COLOR_MATERIAL);
-    float lightPos[] = { 20.f,20.f,30.f,1.f }; float ambientLight[] = { 0.4f,0.4f,0.4f,1.f }; float diffuseLight[] = { 0.7f,0.7f,0.7f,1.f };
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPos); glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight); glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
-
-    gIsMoving = keyUp || keydown;
-    gRunningAnim = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    if (gIsMoving) {
-        gAnimTime += 0.016f;
-    }
+    float lightPos[] = { 20.f,20.f,30.f,1.f }; 
+    float ambientLight[] = { 0.4f,0.4f,0.4f,1.f }; 
+    float diffuseLight[] = { 0.7f,0.7f,0.7f,1.f };
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos); 
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight); 
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
 
     float bodyBob = 0.0f;
     float leftArmSwing = 0.0f, rightArmSwing = 0.0f;
@@ -3497,7 +4210,7 @@ void display() {
     }
 
     glPushMatrix();
-    glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob, gCharacterPos.z);
+    glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob + gJumpVerticalOffset, gCharacterPos.z);
     glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
     float current_speed = gRunningAnim ? gRunSpeed : gWalkSpeed;
@@ -3588,6 +4301,80 @@ void display() {
 
     glPopMatrix();
 }
+
+void display() {
+    glClearColor(0.6f, 0.3f, 0.7f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glMatrixMode(GL_PROJECTION); glLoadIdentity();
+    
+    // Handle viewport and projection setup
+    if (gViewportMode) {
+        // Split viewport mode - render model twice with different projections
+        
+        // Clear the entire screen first
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        
+        // Left viewport - Orthographic
+        int halfWidth = gWidth / 2;
+        glViewport(0, 0, halfWidth, gHeight);
+        glLoadIdentity();
+        float orthoSize = gDist * 0.5f;
+        float aspect = (float)halfWidth / gHeight;
+        glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
+        
+        // Render scene in orthographic mode (left half)
+        glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+        Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
+        gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+        
+        // Render the scene for orthographic view
+        renderScene();
+        
+        // Right viewport - Perspective
+        glViewport(halfWidth, 0, halfWidth, gHeight);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        gluPerspective(45.0, (double)halfWidth / gHeight, 0.1, 100.0);
+        
+        // Render scene in perspective mode (right half)
+        glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+        gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+        
+        // Render the scene for perspective view
+        renderScene();
+        
+        return; // Skip the single viewport rendering below
+        
+    } else {
+        // Single viewport mode
+        glViewport(0, 0, gWidth, gHeight);
+        
+        if (gProjMode == PROJ_ORTHOGRAPHIC) {
+            // Orthographic projection
+            float orthoSize = gDist * 0.5f;
+            float aspect = (float)gWidth / gHeight;
+            glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
+        } else {
+            // Perspective projection (default)
+            gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
+        }
+    }
+
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
+    gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+
+    // Update animation and movement state
+    gIsMoving = keyUp || keydown;
+    gRunningAnim = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (gIsMoving) {
+        gAnimTime += 0.016f;
+    }
+
+    // Render the scene
+    renderScene();
+}
 // ===================================================================
 //
 // SECTION 4: WIN32 APPLICATION FRAMEWORK
@@ -3638,6 +4425,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         display(); SwapBuffers(hdc);
     }
 
+    // Cleanup background system
+    BackgroundRenderer::cleanup();
+    
     wglMakeCurrent(NULL, NULL); wglDeleteContext(rc); ReleaseDC(hWnd, hdc); UnregisterClassA(WINDOW_TITLE, wc.hInstance);
     return 0;
 }
@@ -3660,6 +4450,12 @@ void updateCharacter(float dt) {
     // Update animations
     updateFistAnimation(dt);
     updateKungFuAnimation(dt);  // Add kung fu animation updates
+    updateBoxingStance(dt);     // Add boxing stance animation updates
+    updateJumpAnimation(dt);    // Add jump animation updates
+    updateDance();              // Add K-pop dance animation updates
+    
+    // Update background animation
+    BackgroundRenderer::update(dt);
 }
 
 LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -3677,11 +4473,19 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == '2') { g_TextureEnabled = !g_TextureEnabled; } // Toggle hand texture
         else if (wParam == '3') { gConcreteHands = !gConcreteHands; } // Toggle concrete hands
         else if (wParam == 'F') { toggleFistAnimation(); } // Toggle fist animation
+        else if (wParam == 'G') { startDance(); } // K-pop dance animation
+        else if (wParam == 'B') { toggleBoxingStance(); } // Toggle boxing stance (guard position)
+        else if (wParam == 'H') { gShowJointVisuals = !gShowJointVisuals; } // Toggle joint visualization
         else if (wParam == 'X') { gSwordVisible = !gSwordVisible; } // Toggle sword visibility
         else if (wParam == 'V') { gSpearVisible = !gSpearVisible; }
         else if (wParam == 'C') { gShieldVisible = !gShieldVisible; }
         else if (wParam == 'Z') { gWeaponInRightHand = !gWeaponInRightHand; } // Switches ALL weapons
         else if (wParam == 'M') { gArmorVisible = !gArmorVisible; }
+        else if (wParam == 'K') { gBackgroundVisible = !gBackgroundVisible; } // Toggle background visibility
+        // Projection and Viewport Controls
+        else if (wParam == 'O') { gProjMode = PROJ_ORTHOGRAPHIC; } // Orthographic projection
+        else if (wParam == 'P') { gProjMode = PROJ_PERSPECTIVE; } // Perspective projection
+        else if (wParam == 'L') { gViewportMode = !gViewportMode; } // Toggle split viewport
         // Kung Fu Animation Styles - Now with flowing anime-like animations!
         else if (wParam == 'Q') { startKungFuAnimation(1); } // Crane style animation
         else if (wParam == 'N') { startKungFuAnimation(0); } // Stop animation / Normal pose
@@ -3689,6 +4493,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
          // Facial Features Scale Controls
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
+        else if (wParam == 'G') keyG = true;
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
         else if (wParam == VK_LEFT) keyLeft = true; else if (wParam == VK_RIGHT) keyRight = true;
         else if (wParam == VK_SHIFT) keyShift = true;
@@ -3696,6 +4501,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     case WM_KEYUP:
         if (wParam == 'W') keyW = false; else if (wParam == 'S') keyS = false;
         else if (wParam == 'A') keyA = false; else if (wParam == 'D') keyD = false;
+        else if (wParam == 'G') keyG = false;
         else if (wParam == VK_UP) keyUp = false; else if (wParam == VK_DOWN) keydown = false;
         else if (wParam == VK_LEFT) keyLeft = false; else if (wParam == VK_RIGHT) keyRight = false;
         else if (wParam == VK_SHIFT) keyShift = false;

@@ -13,41 +13,256 @@ void setArmorMaterial() {
 
 void drawHelmet() {
     setArmorMaterial();
-    const int segments = 20;
-    const int layers = 16;
-    const float radius = HEAD_RADIUS * 1.2f;
-
+    const int segments = 32;
+    const float helmetRadius = HEAD_RADIUS * 1.75f;
+    const float thickness = 0.1f;
+    
     glPushMatrix();
-    for (int i = 0; i < layers / 2; i++) {
-        float lat0 = PI * (-0.5f + (float)(i) / layers);
-        float lat1 = PI * (-0.5f + (float)(i + 1) / layers);
-        if (sinf(lat0) < 0) continue;
-
-        float r0 = radius * cosf(lat0);
-        float r1 = radius * cosf(lat1);
-        float y0 = radius * sinf(lat0);
-        float y1 = radius * sinf(lat1);
-
-        glBegin(GL_QUAD_STRIP);
-        for (int j = 0; j <= segments; j++) {
-            float lng = 2.0f * PI * (float)j / segments;
-            float x = cosf(lng);
-            float z = sinf(lng);
-
-            glNormal3f(x * r1, y1, z * r1);
-            glVertex3f(x * r1, y1, z * r1);
-            glNormal3f(x * r0, y0, z * r0);
-            glVertex3f(x * r0, y0, z * r0);
-        }
-        glEnd();
+    // Position the helmet on the head
+    glTranslatef(0.0f, 0.55f, 0.1f);
+	glRotatef(0.0f, 0.0f, 1.0f, 0.0f); // Slight forward tilt
+    // Calculate the actual eye level relative to helmet position
+    const float headCenterY = 0.0f;
+    const float eyeY = HEAD_RADIUS * 0.2f; // Eye Y relative to head center = 0.06f
+    const float eyeLevelInHelmet = (headCenterY + eyeY) - 0.25f; // = -0.19f
+    
+    // Define helmet sections heights
+    const float topDomeHeight = helmetRadius * 0.8f;     // Upper dome section
+    const float eyeLevelHeight = eyeLevelInHelmet;       // Eye level height
+    const float slitHeight = 0.15f;                      // Height of the eye slit
+    const float slitTop = eyeLevelHeight + slitHeight;   // Top of eye slit
+    const float slitBottom = eyeLevelHeight - slitHeight; // Bottom of eye slit
+    const float neckGuardTop = -helmetRadius * 0.6f;     // Where neck guard starts
+    const float neckGuardBottom = -helmetRadius * 1.3f;  // Where neck guard ends
+    
+    // Define angular sections (in radians)
+    const float frontStartAngle = -PI * 0.3f;  // Where front section starts (-54 degrees)
+    const float frontEndAngle = PI * 0.3f;     // Where front section ends (54 degrees)
+    
+    // 1. Draw the top dome section (complete hemisphere)
+    glPushMatrix();
+    // Apply dome rotation
+    glRotatef(g_helmetDomeRotationX, 1.0f, 0.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationY, 0.0f, 1.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationZ, 0.0f, 0.0f, 1.0f);
+    
+    glBegin(GL_TRIANGLES);
+    // Top center point
+    Vec3f topCenter = {0.0f, topDomeHeight, 0.0f};
+    
+    // Create dome cap using triangles from center to rim
+    for (int i = 0; i < segments; i++) {
+        float angle1 = 2.0f * PI * (float)i / segments;
+        float angle2 = 2.0f * PI * (float)(i + 1) / segments;
+        
+        float x1 = helmetRadius * cosf(angle1);
+        float z1 = helmetRadius * sinf(angle1);
+        float x2 = helmetRadius * cosf(angle2);
+        float z2 = helmetRadius * sinf(angle2);
+        
+        // Create triangle from center to rim
+        Vec3f v1 = topCenter;
+        Vec3f v2 = {x1, slitTop, z1};
+        Vec3f v3 = {x2, slitTop, z2};
+        
+        // Calculate normal
+        Vec3f edge1 = {v2.x - v1.x, v2.y - v1.y, v2.z - v1.z};
+        Vec3f edge2 = {v3.x - v1.x, v3.y - v1.y, v3.z - v1.z};
+        Vec3f normal = normalize(cross(edge1, edge2));
+        
+        glNormal3f(normal.x, normal.y, normal.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+        glVertex3f(v3.x, v3.y, v3.z);
     }
+    glEnd();
+    glPopMatrix();
+    
+    // 2. Draw the side and back pieces (excluding front face)
+    glPushMatrix();
+    // Apply the same rotation as the dome first
+    glRotatef(g_helmetDomeRotationX, 1.0f, 0.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationY, 0.0f, 1.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationZ, 0.0f, 0.0f, 1.0f);
+    // Then apply side cover translation
+    glTranslatef(g_helmetSideOffsetX, g_helmetSideOffsetY, g_helmetSideOffsetZ);
+    
+    glBegin(GL_QUADS);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = 2.0f * PI * (float)i / segments;
+        float angle2 = 2.0f * PI * (float)(i + 1) / segments;
+        
+        // Skip the front face section
+        if ((angle1 >= frontStartAngle && angle1 <= frontEndAngle) ||
+            (angle2 >= frontStartAngle && angle2 <= frontEndAngle)) {
+            continue;
+        }
+        
+        float x1 = helmetRadius * cosf(angle1);
+        float z1 = helmetRadius * sinf(angle1);
+        float x2 = helmetRadius * cosf(angle2);
+        float z2 = helmetRadius * sinf(angle2);
+        
+        // Calculate normal pointing outward
+        Vec3f normal = normalize({(x1 + x2) * 0.5f, 0.0f, (z1 + z2) * 0.5f});
+        
+        // Draw quad connecting top to bottom
+        glNormal3f(normal.x, normal.y, normal.z);
+        glVertex3f(x1, slitTop, z1);       // Top-left
+        glVertex3f(x2, slitTop, z2);       // Top-right
+        glVertex3f(x2, slitBottom, z2);    // Bottom-right
+        glVertex3f(x1, slitBottom, z1);    // Bottom-left
+    }
+    glEnd();
+    glPopMatrix();
+    
+    // 3. Draw the back piece separately (can be translated independently)
+    glPushMatrix();
+    // Apply the same rotation as the dome first
+    glRotatef(g_helmetDomeRotationX, 1.0f, 0.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationY, 0.0f, 1.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationZ, 0.0f, 0.0f, 1.0f);
+    // Then apply back cover translation
+    glTranslatef(g_helmetBackOffsetX, g_helmetBackOffsetY, g_helmetBackOffsetZ);
+    
+    glBegin(GL_QUADS);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = 2.0f * PI * (float)i / segments;
+        float angle2 = 2.0f * PI * (float)(i + 1) / segments;
+        
+        // Only draw the back section
+        if (sinf(angle1) > -0.5f || sinf(angle2) > -0.5f) {
+            continue;
+        }
+        
+        float x1 = helmetRadius * cosf(angle1);
+        float z1 = helmetRadius * sinf(angle1);
+        float x2 = helmetRadius * cosf(angle2);
+        float z2 = helmetRadius * sinf(angle2);
+        
+        // Calculate normal pointing outward
+        Vec3f normal = normalize({(x1 + x2) * 0.5f, 0.0f, (z1 + z2) * 0.5f});
+        
+        // Draw quad connecting top to bottom
+        glNormal3f(normal.x, normal.y, normal.z);
+        glVertex3f(x1, slitTop, z1);       // Top-left
+        glVertex3f(x2, slitTop, z2);       // Top-right
+        glVertex3f(x2, slitBottom, z2);    // Bottom-right
+        glVertex3f(x1, slitBottom, z1);    // Bottom-left
+    }
+    glEnd();
+    glPopMatrix();
+    
+    // 4. Draw the lower part of helmet (below eye level to neck)
+    glPushMatrix();
+    // Apply the same rotation as the dome
+    glRotatef(g_helmetDomeRotationX, 1.0f, 0.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationY, 0.0f, 1.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationZ, 0.0f, 0.0f, 1.0f);
+    
+    glBegin(GL_QUADS);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = 2.0f * PI * (float)i / segments;
+        float angle2 = 2.0f * PI * (float)(i + 1) / segments;
+        
+        // Skip the front face section
+        if ((angle1 >= frontStartAngle && angle1 <= frontEndAngle) ||
+            (angle2 >= frontStartAngle && angle2 <= frontEndAngle)) {
+            continue;
+        }
+        
+        float x1 = helmetRadius * cosf(angle1);
+        float z1 = helmetRadius * sinf(angle1);
+        float x2 = helmetRadius * cosf(angle2);
+        float z2 = helmetRadius * sinf(angle2);
+        
+        // Calculate normal pointing outward
+        Vec3f normal = normalize({(x1 + x2) * 0.5f, 0.0f, (z1 + z2) * 0.5f});
+        
+        // Draw quad connecting eye level to neck
+        glNormal3f(normal.x, normal.y, normal.z);
+        glVertex3f(x1, slitBottom, z1);    // Top-left
+        glVertex3f(x2, slitBottom, z2);    // Top-right
+        glVertex3f(x2, neckGuardTop, z2);  // Bottom-right
+        glVertex3f(x1, neckGuardTop, z1);  // Bottom-left
+    }
+    glEnd();
+    glPopMatrix();
+    
+    // 5. Draw the neck guard
+    glPushMatrix();
+    // Apply the same rotation as the dome to keep them aligned
+    glRotatef(g_helmetDomeRotationX, 1.0f, 0.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationY, 0.0f, 1.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationZ, 0.0f, 0.0f, 1.0f);
+    
+    // Create rings for neck guard
+    std::vector<Vec3f> neckTop = generateRing(0.0f, neckGuardTop, 0.0f, 
+                                             helmetRadius * 1.1f, helmetRadius * 1.1f, segments);
+    std::vector<Vec3f> neckBottom = generateRing(0.0f, neckGuardBottom, 0.0f, 
+                                                helmetRadius * 1.4f, helmetRadius * 1.4f, segments);
+    
+    // Draw neck guard from top to bottom
+    glBegin(GL_QUADS);
+    for (int i = 0; i < segments; i++) {
+        float angle1 = 2.0f * PI * (float)i / segments;
+        float angle2 = 2.0f * PI * (float)(i + 1) / segments;
+        
+        // Draw complete circle - no front face restriction for neck guard
+        int k1 = i;
+        int k2 = (i + 1) % segments;
+        
+        // Calculate normal pointing outward
+        Vec3f normal = normalize({(neckTop[k1].x + neckTop[k2].x) * 0.5f, 0.0f, (neckTop[k1].z + neckTop[k2].z) * 0.5f});
+        
+        // Draw quad connecting neck top to neck bottom
+        glNormal3f(normal.x, normal.y, normal.z);
+        glVertex3f(neckTop[k1].x, neckTop[k1].y, neckTop[k1].z);      // Top-left
+        glVertex3f(neckTop[k2].x, neckTop[k2].y, neckTop[k2].z);      // Top-right
+        glVertex3f(neckBottom[k2].x, neckBottom[k2].y, neckBottom[k2].z); // Bottom-right
+        glVertex3f(neckBottom[k1].x, neckBottom[k1].y, neckBottom[k1].z); // Bottom-left
+    }
+    glEnd();
+    glPopMatrix();
+    
+    // 6. Draw the helmet crest/ridge on top
+    glPushMatrix();
+    // Apply the same rotation as the dome and neck guard
+    glRotatef(g_helmetDomeRotationX, 1.0f, 0.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationY, 0.0f, 1.0f, 0.0f);
+    glRotatef(g_helmetDomeRotationZ, 0.0f, 0.0f, 1.0f);
+    
+    glTranslatef(0.0f, helmetRadius * 1.3f, 0.0f); // Raised crest position
+    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+    
+    glBegin(GL_QUAD_STRIP);
+    float crestLength = helmetRadius * 1.8f; // Longer crest
+    float crestHeight = 0.15f;              // Taller crest
+    float crestWidth = 0.05f;
+    
+    for (int i = 0; i <= segments; i++) {
+        float t = (float)i / segments;
+        float z = -crestLength * 0.5f + crestLength * t;
+        
+        glNormal3f(0.0f, 1.0f, 0.0f);
+        glVertex3f(-crestWidth, crestHeight, z);
+        glVertex3f(crestWidth, crestHeight, z);
+        
+        glNormal3f(0.0f, -1.0f, 0.0f);
+        glVertex3f(-crestWidth, 0.0f, z);
+        glVertex3f(crestWidth, 0.0f, z);
+    }
+    glEnd();
+    glPopMatrix();
+    
     glPopMatrix();
 }
 
 void drawArmor() {
     setArmorMaterial();
     glPushMatrix();
-    glScalef(1.05f, 1.1f, 1.05f);
+    // Increased scale to make armor significantly bigger than torso
+    glScalef(1.2f, 1.15f, 1.2f);
 
     glBegin(GL_TRIANGLES);
     drawCurvedBand(R0, Y0, R1, Y1, segCos, segSin);
@@ -67,6 +282,10 @@ void drawArmor() {
     glEnd();
 
     glPopMatrix();
+}
+
+void drawShoulderArmor() {
+    // Shoulder armor removed - replaced with head armor
 }
 
 void drawUpperLegArmor() { // Draws Thigh Guard
@@ -229,3 +448,50 @@ void drawSabatons() {
 
     glPopMatrix();
 }
+
+// ===================================================================
+// ARM ARMOR IMPLEMENTATION
+// ===================================================================
+
+void drawUpperArmArmor() {
+    setArmorMaterial();
+    const float armScale = 0.14f; // Same as ARM_SCALE
+    const float armorRadius = (0.8f) * armScale; // Base arm radius + armor thickness
+    
+    // Upper arm coordinates (scaled from g_ArmJoints)
+    // Joint 0: Shoulder base (0.0, 0.0, 0.1)
+    // Joint 3: Elbow (0.30, 0.15, 5.8)
+    
+    Vec3f shoulderPos = { 0.0f * armScale, 0.0f * armScale, 0.1f * armScale };
+    Vec3f elbowPos = { 0.30f * armScale, 0.15f * armScale, 5.8f * armScale };
+    
+    // Calculate cylinder length and orientation
+    Vec3f armVector = { elbowPos.x - shoulderPos.x, elbowPos.y - shoulderPos.y, elbowPos.z - shoulderPos.z };
+    float armLength = sqrtf(armVector.x * armVector.x + armVector.y * armVector.y + armVector.z * armVector.z);
+    
+    glPushMatrix();
+    
+    // Position at shoulder
+    glTranslatef(shoulderPos.x, shoulderPos.y, shoulderPos.z);
+    
+    // Orient cylinder along arm direction
+    // Calculate rotation angles to align cylinder with arm vector
+    float yaw = atan2f(armVector.x, armVector.z) * 180.0f / PI;
+    float pitch = -asinf(armVector.y / armLength) * 180.0f / PI;
+    
+    glRotatef(yaw, 0.0f, 1.0f, 0.0f);
+    glRotatef(pitch, 1.0f, 0.0f, 0.0f);
+    
+    // Draw cylinder using GLU quadric
+    GLUquadric* quadric = gluNewQuadric();
+    if (quadric) {
+        gluQuadricNormals(quadric, GLU_SMOOTH);
+        gluQuadricOrientation(quadric, GLU_OUTSIDE);
+        gluCylinder(quadric, armorRadius, armorRadius, armLength, 32, 1);
+        gluDeleteQuadric(quadric);
+    }
+    
+    glPopMatrix();
+}
+
+

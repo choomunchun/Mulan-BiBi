@@ -1,63 +1,44 @@
 #include <Windows.h>
-#include <windowsx.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
 #include <cmath>
+#include "sword.h"
+#include "utils.h"
 
-#pragma comment(lib, "OpenGL32.lib")
-#pragma comment(lib, "Glu32.lib")
+// --- Sword State Variables ---
+bool gSwordVisible = false;
+bool gSwordInRightHand = true; // true = right hand, false = left hand
+float gSwordScale = 0.3f; // Scale down the sword to fit in hand
 
-// --- Global Variables ---
-HDC   ghDC = NULL;
-HGLRC ghRC = NULL;
-HWND  ghWnd = NULL;
-
-bool isDragging = false;
-float rotationX = 20.0f;
-float rotationY = 0.0f;
-int lastMouseX, lastMouseY;
-float zoom = 10.0f; // For zooming with the mouse wheel
-
-const float PI = 3.14159265358979323846f;
-
-// --- Struct for Material Properties ---
-struct Material {
-    GLfloat ambient[4];
-    GLfloat diffuse[4];
-    GLfloat specular[4];
-    GLfloat shininess;
-};
+// SWORD CONTROLS:
+// Press 'X' to toggle sword visibility
+// Press 'Z' to switch sword between left and right hand
+// When holding sword, the hand automatically forms a fist for proper grip
 
 // Define materials for our sword parts
-Material polishedSteel = {
+SwordMaterial polishedSteel = {
     {0.23f, 0.23f, 0.23f, 1.0f}, {0.77f, 0.77f, 0.77f, 1.0f},
     {0.99f, 0.99f, 0.99f, 1.0f}, 100.0f
 };
-Material darkJade = {
+SwordMaterial darkJade = {
     {0.0f, 0.1f, 0.05f, 1.0f}, {0.1f, 0.35f, 0.2f, 1.0f},
     {0.45f, 0.55f, 0.45f, 1.0f}, 32.0f
 };
-Material hiltWrap = {
+SwordMaterial hiltWrap = {
     {0.08f, 0.05f, 0.05f, 1.0f}, {0.2f, 0.15f, 0.15f, 1.0f},
     {0.1f, 0.1f, 0.1f, 1.0f}, 10.0f
 };
 
 // Helper function to apply a material
-void setMaterial(const Material& mat) {
+void setSwordMaterial(const SwordMaterial& mat) {
     glMaterialfv(GL_FRONT, GL_AMBIENT, mat.ambient);
     glMaterialfv(GL_FRONT, GL_DIFFUSE, mat.diffuse);
     glMaterialfv(GL_FRONT, GL_SPECULAR, mat.specular);
     glMaterialf(GL_FRONT, GL_SHININESS, mat.shininess);
 }
 
-// --- Forward Declarations ---
-LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
-void initGL();
-void renderScene();
-
-// --- Helper and Drawing Functions (Unchanged from "Mulan" version) ---
-
-void drawSphere(double r, int lats, int longs) { 
+// --- Sword Drawing Functions ---
+void drawSwordSphere(double r, int lats, int longs) {
     for (int i = 0; i <= lats; i++) {
         double lat0 = PI * (-0.5 + (double)(i - 1) / lats);
         double z0 = r * sin(lat0); double zr0 = r * cos(lat0);
@@ -73,7 +54,8 @@ void drawSphere(double r, int lats, int longs) {
         glEnd();
     }
 }
-void drawCylinder(double r, double h, int slices) {
+
+void drawSwordCylinder(double r, double h, int slices) {
     glBegin(GL_QUAD_STRIP);
     for (int i = 0; i <= slices; i++) {
         float angle = 2.0f * PI * i / slices;
@@ -97,7 +79,8 @@ void drawCylinder(double r, double h, int slices) {
     }
     glEnd();
 }
-void drawInscription() {
+
+void drawSwordInscription() {
     glDisable(GL_LIGHTING);
     glColor3f(0.1f, 0.1f, 0.1f); glLineWidth(2.0f);
     glPushMatrix();
@@ -123,8 +106,9 @@ void drawInscription() {
     glPopMatrix();
     glEnable(GL_LIGHTING);
 }
-void drawBlade() {
-    setMaterial(polishedSteel);
+
+void drawSwordBlade() {
+    setSwordMaterial(polishedSteel);
     float bladeLength = 5.0f; float bladeWidth = 0.2f; float bladeThickness = 0.05f;
     glBegin(GL_QUADS);
     glNormal3f(0.5f, 0.125f, 0.0f);
@@ -143,10 +127,11 @@ void drawBlade() {
     glNormal3f(-0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
     glNormal3f(-0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
     glEnd();
-    drawInscription();
+    drawSwordInscription();
 }
-void drawGuard() {
-    setMaterial(darkJade);
+
+void drawSwordGuard() {
+    setSwordMaterial(darkJade);
     float guardWidth = 0.6f; float guardHeight = 0.2f; float guardDepth = 0.1f; int segments = 10;
     glBegin(GL_QUAD_STRIP);
     for (int i = 0; i <= segments; ++i) {
@@ -165,9 +150,10 @@ void drawGuard() {
     }
     glEnd();
 }
-void drawHilt() {
-    setMaterial(hiltWrap);
-    drawCylinder(0.1f, 1.2f, 20);
+
+void drawSwordHilt() {
+    setSwordMaterial(hiltWrap);
+    drawSwordCylinder(0.1f, 1.2f, 20);
     glDisable(GL_LIGHTING);
     glColor3f(0.2f, 0.4f, 0.25f);
     float wrapRadius = 0.1f * 1.05f; float wrapWidth = 0.02f;
@@ -180,18 +166,20 @@ void drawHilt() {
     glEnd();
     glEnable(GL_LIGHTING);
 }
-void drawPommel() {
-    setMaterial(darkJade);
+
+void drawSwordPommel() {
+    setSwordMaterial(darkJade);
     glPushMatrix();
     glScalef(1.0f, 0.7f, 1.0f);
-    drawSphere(0.18f, 30, 30);
+    drawSwordSphere(0.18f, 30, 30);
     glPopMatrix();
 }
-void drawTassel() {
+
+void drawSwordTassel() {
     glPushMatrix();
     glTranslatef(0.0f, -0.05f, 0.0f);
-    setMaterial(darkJade);
-    drawSphere(0.05f, 20, 20);
+    setSwordMaterial(darkJade);
+    drawSwordSphere(0.05f, 20, 20);
     glPopMatrix();
     glDisable(GL_LIGHTING);
     glColor3f(0.9f, 0.2f, 0.3f); glLineWidth(2.5f);
@@ -205,124 +193,30 @@ void drawTassel() {
     glEnable(GL_LIGHTING);
 }
 
-// --- Main Rendering and Initialization Functions ---
+// Main sword drawing function
+void drawSword() {
+    if (!gSwordVisible) return;
 
-void renderScene() {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glLoadIdentity();
-
-    // CHANGED: Camera is now centered on the model's approximate center
-    gluLookAt(0.0, 1.5, zoom,   // Eye position
-              0.0, 1.5, 0.0,    // Look at position (center of model)
-              0.0, 1.0, 0.0);   // Up vector
-
-    // Define light source position
-    GLfloat light_pos[] = { 4.0f, 8.0f, 10.0f, 1.0f };
-    glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
-    
-    // Create a matrix for the sword model
     glPushMatrix();
 
-    // Apply user-controlled rotation
-    glRotatef(rotationX, 1.0f, 0.0f, 0.0f);
-    glRotatef(rotationY, 0.0f, 1.0f, 0.0f);
-    
-    // CHANGED: Translate the sword so its center is at the world origin (0,0,0)
-    // before rotation is applied. This makes it rotate around its center.
-    glTranslatef(0.0, -3.0, 0.0);
+    // Scale the sword to fit in hand
+    glScalef(gSwordScale, gSwordScale, gSwordScale);
+
+    // Position sword components relative to grip point (0,0,0)
+    glTranslatef(0.0, -3.0, 0.0); // Move so grip is at origin
 
     // Render sword components
-    drawBlade();
-    drawGuard();
-    glPushMatrix(); glTranslatef(0.0, -1.2, 0.0); drawHilt(); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.0, -1.3, 0.0); drawPommel(); drawTassel(); glPopMatrix();
-    
-    glPopMatrix(); // End of sword matrix
+    drawSwordBlade();
+    drawSwordGuard();
+    glPushMatrix();
+    glTranslatef(0.0, -1.2, 0.0);
+    drawSwordHilt();
+    glPopMatrix();
+    glPushMatrix();
+    glTranslatef(0.0, -1.3, 0.0);
+    drawSwordPommel();
+    drawSwordTassel();
+    glPopMatrix();
 
-    SwapBuffers(ghDC);
-}
-
-void initGL() {
-    // CHANGED: Neutral dark gray background
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-    glEnable(GL_COLOR_MATERIAL);
-    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-
-    // REMOVED: Blending for shadows is no longer needed
-    // glEnable(GL_BLEND);
-    // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    GLfloat light_ambient[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat light_diffuse[] = { 0.9f, 0.9f, 0.9f, 1.0f };
-    GLfloat light_specular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
-
-    glShadeModel(GL_SMOOTH);
-}
-
-// --- Win32 Application Structure (Unchanged) ---
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    WNDCLASS wc; MSG msg; BOOL quit = FALSE;
-    wc.style = CS_OWNDC; wc.lpfnWndProc = WindowProc; wc.cbClsExtra = 0; wc.cbWndExtra = 0;
-    wc.hInstance = hInstance; wc.hIcon = LoadIcon(NULL, IDI_APPLICATION); wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH); wc.lpszMenuName = NULL; wc.lpszClassName = "GLWindowClass";
-    RegisterClass(&wc);
-    ghWnd = CreateWindow("GLWindowClass", "Sword Model Viewer", WS_CAPTION | WS_POPUPWINDOW | WS_VISIBLE, 0, 0, 800, 600, NULL, NULL, hInstance, NULL);
-    while (!quit) {
-        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) { quit = TRUE; }
-            else { TranslateMessage(&msg); DispatchMessage(&msg); }
-        } else { renderScene(); }
-    }
-    return msg.wParam;
-}
-
-LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_CREATE: {
-            ghDC = GetDC(hWnd);
-            PIXELFORMATDESCRIPTOR pfd; ZeroMemory(&pfd, sizeof(pfd));
-            pfd.nSize = sizeof(pfd); pfd.nVersion = 1; pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-            pfd.iPixelType = PFD_TYPE_RGBA; pfd.cColorBits = 32; pfd.cDepthBits = 16; pfd.iLayerType = PFD_MAIN_PLANE;
-            int format = ChoosePixelFormat(ghDC, &pfd);
-            SetPixelFormat(ghDC, format, &pfd);
-            ghRC = wglCreateContext(ghDC);
-            wglMakeCurrent(ghDC, ghRC);
-            initGL();
-            return 0;
-        }
-        case WM_CLOSE: PostQuitMessage(0); return 0;
-        case WM_DESTROY: wglMakeCurrent(NULL, NULL); wglDeleteContext(ghRC); ReleaseDC(hWnd, ghDC); return 0;
-        case WM_SIZE: {
-            int width = LOWORD(lParam); int height = HIWORD(lParam);
-            glViewport(0, 0, width, height); glMatrixMode(GL_PROJECTION); glLoadIdentity();
-            gluPerspective(45.0, (double)width / (double)height, 1.0, 100.0); glMatrixMode(GL_MODELVIEW);
-            return 0;
-        }
-        case WM_LBUTTONDOWN:
-            isDragging = true; lastMouseX = GET_X_LPARAM(lParam); lastMouseY = GET_Y_LPARAM(lParam);
-            SetCapture(hWnd); return 0;
-        case WM_LBUTTONUP:
-            isDragging = false; ReleaseCapture(); return 0;
-        case WM_MOUSEMOVE:
-            if (isDragging) {
-                int currentX = GET_X_LPARAM(lParam); int currentY = GET_Y_LPARAM(lParam);
-                rotationY += (currentX - lastMouseX); rotationX += (currentY - lastMouseY);
-                lastMouseX = currentX; lastMouseY = currentY;
-            }
-            return 0;
-        case WM_MOUSEWHEEL:
-            zoom -= (float)GET_WHEEL_DELTA_WPARAM(wParam) / 120.0f * 0.5f;
-            if (zoom < 2.0f) zoom = 2.0f;
-            if (zoom > 30.0f) zoom = 30.0f;
-            return 0;
-        default:
-            return DefWindowProc(hWnd, uMsg, wParam, lParam);
-    }
+    glPopMatrix();
 }

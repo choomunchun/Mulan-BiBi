@@ -15,6 +15,7 @@
 #include "shield.h"
 #include "armor.h"
 #include "background.h"
+#include "sword.h"
 #include "texture.h"
 
 
@@ -67,7 +68,6 @@ bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift
 bool keyF = false; // For Fist Animation
 bool keyG = false; // For K-pop Dance Animation
 bool keyX = false; // For Sword Toggle
-bool keyZ = false; // For Sword Hand Switch
 
 // == Weapon controls
 bool gSpearVisible = false;
@@ -161,8 +161,8 @@ Vec3  gCharacterPos = { 0.0f, 0.0f, 0.0f };
 float gCharacterYaw = 0.0f;
 float gWalkPhase = 0.0f;
 float gMoveSpeed = 0.0f;
-const float WALK_SPEED = 3.0f;
-const float RUN_SPEED = 1.0f;
+const float WALK_SPEED = 2.0f;    // Fixed: Reduced for normal walking
+const float RUN_SPEED = 4.0f;     // Fixed: Increased to be faster than walking
 const float TURN_SPEED = 120.0f;
 
 // --- Fist Animation State ---
@@ -193,6 +193,21 @@ float gKungFuAnimationTime = 0.0f;
 int gKungFuAnimationPhase = 0;
 const float KUNGFU_ANIMATION_SPEED = 2.0f;
 const float PHASE_DURATION = 1.5f; // Duration of each animation phase
+
+// --- Sword Attack Animation State ---
+bool gSwordAttackAnimating = false;
+float gSwordAttackAnimationTime = 0.0f;
+int gSwordAttackPhase = 0; // 0 = ready, 1 = wind up, 2 = strike, 3 = follow through
+const float SWORD_ATTACK_DURATION = 2.5f; // Total attack animation duration - much slower
+const float SWORD_WINDUP_DURATION = 0.8f; // Wind up phase duration - slower dramatic overhead raise
+const float SWORD_STRIKE_DURATION = 0.3f; // Strike phase duration - slower but still powerful
+const float SWORD_FOLLOWTHROUGH_DURATION = 1.4f; // Follow through phase duration - longer recovery
+
+// Sword attack pose offsets
+float gSwordAttackTorsoRotation = 0.0f;
+float gSwordAttackShoulderOffset = 0.0f;
+float gSwordAttackArmExtension = 0.0f;
+float gSwordAttackLegStance = 0.0f;
 
 // --- Realistic Hand Form States ---
 enum HandForm {
@@ -228,9 +243,9 @@ KungFuPose gCurrentPose, gTargetPose;
 // =========================================================
 // == 📍 NEW: ANIMATION AMPLITUDE CONTROLS ==
 // =========================================================
-const float WALK_ARM_SWING = 35.0f;      // Walking arm swing angle
-const float RUN_ARM_SWING = 55.0f;       // Running arm swing angle
-const float BODY_BOB_AMOUNT = 0.03f;     // How much the body moves up and down
+const float WALK_ARM_SWING = 25.0f;      // Walking arm swing angle (reduced)
+const float RUN_ARM_SWING = 45.0f;       // Running arm swing angle (reduced)
+const float BODY_BOB_AMOUNT = 0.015f;    // How much the body moves up and down (reduced)
 
 // --- Data Structures ---
 
@@ -277,6 +292,23 @@ static void setRenderMode(RenderMode m) {
         glEnable(GL_TEXTURE_2D);
         glEnable(GL_LIGHTING);
         break;
+    }
+
+    // Enhanced texture loading from main2.cpp
+    if (hBMP != NULL) {
+        GetObject(hBMP, sizeof(BMP), &BMP);
+
+        // Assign texture to polygon
+        glEnable(GL_TEXTURE_2D);
+        GLuint texture;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BMP.bmWidth, BMP.bmHeight, 0, GL_BGR, GL_UNSIGNED_BYTE, BMP.bmBits);
+
+        DeleteObject(hBMP);
+        hBMP = NULL;
     }
 }
 
@@ -372,18 +404,10 @@ float gSwordScale = 0.3f; // Scale down the sword to fit in hand
 
 // SWORD CONTROLS:
 // Press 'X' to toggle sword visibility
-// Press 'Z' to switch sword between left and right hand
+// Press 'Z' to perform warrior sword attack animation
 // When holding sword, the hand automatically forms a fist for proper grip
 
-// --- Sword Material Properties ---
-struct SwordMaterial {
-    GLfloat ambient[4];
-    GLfloat diffuse[4];
-    GLfloat specular[4];
-    GLfloat shininess;
-};
-
-// Define materials for our sword parts
+// Define materials for our sword parts (implementations for extern declarations in sword.h)
 SwordMaterial polishedSteel = {
     {0.23f, 0.23f, 0.23f, 1.0f}, {0.77f, 0.77f, 0.77f, 1.0f},
     {0.99f, 0.99f, 0.99f, 1.0f}, 100.0f
@@ -503,21 +527,55 @@ void drawSwordBlade() {
     setSwordMaterial(polishedSteel);
     float bladeLength = 5.0f; float bladeWidth = 0.2f; float bladeThickness = 0.05f;
     glBegin(GL_QUADS);
+    // Right face with texture coordinates
     glNormal3f(0.5f, 0.125f, 0.0f);
-    glVertex3f(0.0f, 0.0f, bladeThickness); glVertex3f(bladeWidth, 0.0f, 0.0f); glVertex3f(bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(0.0f, 0.0f, bladeThickness);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(bladeWidth, 0.0f, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    
     glNormal3f(0.5f, -0.125f, 0.0f);
-    glVertex3f(bladeWidth, 0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(bladeWidth, 0.0f, 0.0f);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(0.0f, bladeLength, -bladeThickness);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    
+    // Left face with texture coordinates
     glNormal3f(-0.5f, 0.125f, 0.0f);
-    glVertex3f(0.0f, 0.0f, bladeThickness); glVertex3f(-bladeWidth, 0.0f, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(0.0f, 0.0f, bladeThickness);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-bladeWidth, 0.0f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    
     glNormal3f(-0.5f, -0.125f, 0.0f);
-    glVertex3f(-bladeWidth, 0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-bladeWidth, 0.0f, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(0.0f, bladeLength, -bladeThickness);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f);
     glEnd();
+    
     glBegin(GL_TRIANGLES);
     float tipLength = 0.5f;
-    glNormal3f(0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
-    glNormal3f(0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(bladeWidth, bladeLength, 0.0f);
-    glNormal3f(-0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
-    glNormal3f(-0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
+    // Tip triangles with texture coordinates
+    glNormal3f(0.5f, 0.5f, 0.0f);
+    glTexCoord2f(0.5f, 1.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f);
+    glTexCoord2f(1.0f, 0.8f); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    glTexCoord2f(0.0f, 0.8f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    
+    glNormal3f(0.5f, -0.5f, 0.0f);
+    glTexCoord2f(0.5f, 1.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f);
+    glTexCoord2f(0.0f, 0.8f); glVertex3f(0.0f, bladeLength, -bladeThickness);
+    glTexCoord2f(1.0f, 0.8f); glVertex3f(bladeWidth, bladeLength, 0.0f);
+    
+    glNormal3f(-0.5f, 0.5f, 0.0f);
+    glTexCoord2f(0.5f, 1.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f);
+    glTexCoord2f(0.0f, 0.8f); glVertex3f(-bladeWidth, bladeLength, 0.0f);
+    glTexCoord2f(1.0f, 0.8f); glVertex3f(0.0f, bladeLength, bladeThickness);
+    
+    glNormal3f(-0.5f, -0.5f, 0.0f);
+    glTexCoord2f(0.5f, 1.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f);
+    glTexCoord2f(1.0f, 0.8f); glVertex3f(0.0f, bladeLength, -bladeThickness);
+    glTexCoord2f(0.0f, 0.8f); glVertex3f(-bladeWidth, bladeLength, 0.0f);
     glEnd();
     drawSwordInscription();
 }
@@ -591,6 +649,15 @@ void drawSword() {
 
     glPushMatrix();
 
+    // Apply weapon texture to the entire sword
+    bool usingTexture = (gRenderMode == RM_TEXTURED);
+    if (usingTexture) {
+        Tex::bind(Tex::id[Tex::Weapon]);
+        glEnable(GL_TEXTURE_2D);
+        Tex::enableObjectLinearST(0.3f, 0.8f, 0.3f); // Scale texture coordinates for sword
+        glColor3f(1.0f, 1.0f, 1.0f); // White color to show texture properly
+    }
+
     // Scale the sword to fit in hand
     glScalef(gSwordScale, gSwordScale, gSwordScale);
 
@@ -609,6 +676,13 @@ void drawSword() {
     drawSwordPommel();
     drawSwordTassel();
     glPopMatrix();
+
+    // Disable texture after rendering
+    if (usingTexture) {
+        Tex::disableObjectLinearST();
+        Tex::unbind();
+        glDisable(GL_TEXTURE_2D);
+    }
 
     glPopMatrix();
 }
@@ -643,6 +717,8 @@ void startJump(); // Start jump animation
 void startDance(); // Start K-pop dance animation
 void updateDance(); // Update dance animation
 void updateJumpAnimation(float deltaTime); // Update jump animation
+void startSwordAttack(); // Start sword attack animation
+void updateSwordAttackAnimation(float deltaTime); // Update sword attack animation
 Vec3 lerp(const Vec3& a, const Vec3& b, float t); // Linear interpolation
 float smoothStep(float t); // Smooth easing function
 void initializeKungFuSequences(); // Add kung fu animation initialization
@@ -1121,6 +1197,96 @@ void toggleFistAnimation() {
     gFistAnimationActive = true;
     gFistAnimationTime = 0.0f;
     // The animation direction is determined by the current gIsFist state in updateFistAnimation
+}
+
+// SWORD ATTACK ANIMATION FUNCTIONS
+void startSwordAttack() {
+    if (gSwordAttackAnimating) return; // Don't interrupt ongoing animation
+    
+    gSwordAttackAnimating = true;
+    gSwordAttackAnimationTime = 0.0f;
+    gSwordAttackPhase = 0;
+    
+    // Reset attack pose offsets
+    gSwordAttackTorsoRotation = 0.0f;
+    gSwordAttackShoulderOffset = 0.0f;
+    gSwordAttackArmExtension = 0.0f;
+    gSwordAttackLegStance = 0.0f;
+}
+
+void updateSwordAttackAnimation(float deltaTime) {
+    if (!gSwordAttackAnimating) return;
+    
+    gSwordAttackAnimationTime += deltaTime;
+    
+    // Calculate progress through current phase
+    float phaseTime = 0.0f;
+    float phaseDuration = 0.0f;
+    
+    if (gSwordAttackAnimationTime <= SWORD_WINDUP_DURATION) {
+        // Wind up phase
+        gSwordAttackPhase = 1;
+        phaseTime = gSwordAttackAnimationTime;
+        phaseDuration = SWORD_WINDUP_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = smoothStep(progress); // Smooth easing
+        
+        // Wind up: dramatic preparation - raise sword high above head like a real warrior
+        gSwordAttackTorsoRotation = -30.0f * progress; // More pronounced torso twist
+        gSwordAttackShoulderOffset = -25.0f * progress; // Greater shoulder movement for overhead position
+        gSwordAttackArmExtension = -35.0f * progress; // Pull arm way back and up
+        gSwordAttackLegStance = 15.0f * progress; // Wider stance for power
+        
+    } else if (gSwordAttackAnimationTime <= SWORD_WINDUP_DURATION + SWORD_STRIKE_DURATION) {
+        // Strike phase
+        gSwordAttackPhase = 2;
+        phaseTime = gSwordAttackAnimationTime - SWORD_WINDUP_DURATION;
+        phaseDuration = SWORD_STRIKE_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = progress * progress * (3.0f - 2.0f * progress); // Explosive strike motion
+        
+        // Strike: explosive overhead to forward swing motion
+        float windupTorso = -30.0f;
+        float windupShoulder = -25.0f;
+        float windupArm = -35.0f;
+        float windupLeg = 15.0f;
+        
+        gSwordAttackTorsoRotation = windupTorso + (50.0f * progress); // Powerful torso rotation
+        gSwordAttackShoulderOffset = windupShoulder + (40.0f * progress); // Shoulder drives forward
+        gSwordAttackArmExtension = windupArm + (60.0f * progress); // Full arm extension like real sword strike
+        gSwordAttackLegStance = windupLeg + (-20.0f * progress); // Weight shifts forward aggressively
+        
+    } else if (gSwordAttackAnimationTime <= SWORD_ATTACK_DURATION) {
+        // Follow through phase
+        gSwordAttackPhase = 3;
+        phaseTime = gSwordAttackAnimationTime - SWORD_WINDUP_DURATION - SWORD_STRIKE_DURATION;
+        phaseDuration = SWORD_FOLLOWTHROUGH_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = smoothStep(progress); // Smooth recovery
+        
+        // Follow through: controlled recovery to ready position
+        float strikeTorso = 20.0f;
+        float strikeShoulder = 15.0f;
+        float strikeArm = 25.0f;
+        float strikeLeg = -5.0f;
+        
+        gSwordAttackTorsoRotation = strikeTorso * (1.0f - progress);
+        gSwordAttackShoulderOffset = strikeShoulder * (1.0f - progress);
+        gSwordAttackArmExtension = strikeArm * (1.0f - progress);
+        gSwordAttackLegStance = strikeLeg * (1.0f - progress);
+        
+    } else {
+        // Animation complete
+        gSwordAttackAnimating = false;
+        gSwordAttackPhase = 0;
+        gSwordAttackTorsoRotation = 0.0f;
+        gSwordAttackShoulderOffset = 0.0f;
+        gSwordAttackArmExtension = 0.0f;
+        gSwordAttackLegStance = 0.0f;
+    }
 }
 
 // =============== ADVANCED HAND & ARM DRAWING FUNCTIONS ===============
@@ -3922,6 +4088,100 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         g_HandJoints[0].position = leftWristBackup;
         g_HandJoints2[0].position = rightWristBackup;
     }
+    else if (gSwordAttackAnimating) {
+        // Use sword attack pose values - warrior-like sword attack stance
+        // Create realistic warrior sword attack with proper arm bending patterns
+        
+        float swordArmPitch = 0.0f;
+        float swordArmExtension = 0.0f;
+        float swordElbowBend = 0.0f;
+        float balanceArmPitch = 0.0f;
+        
+        // Determine which arm holds the sword and calculate realistic warrior movements
+        if (gWeaponInRightHand) {
+            // Right arm sword attack - realistic overhead to forward swing
+            switch (gSwordAttackPhase) {
+                case 1: // Wind up phase - raise arm high above head
+                    swordArmPitch = 120.0f + gSwordAttackShoulderOffset; // High overhead position
+                    swordElbowBend = 70.0f + abs(gSwordAttackShoulderOffset) * 0.8f; // Bent elbow for power
+                    balanceArmPitch = 60.0f; // Left arm raised for balance
+                    break;
+                case 2: // Strike phase - powerful downward swing
+                    swordArmPitch = 45.0f + gSwordAttackArmExtension; // Swinging down and forward
+                    swordElbowBend = 25.0f + gSwordAttackArmExtension * 0.4f; // Extending for reach
+                    balanceArmPitch = 90.0f; // Left arm extended for balance
+                    break;
+                case 3: // Follow through - arm extends fully forward
+                    swordArmPitch = 30.0f + gSwordAttackArmExtension * 0.7f; // Forward completion
+                    swordElbowBend = 10.0f + gSwordAttackArmExtension * 0.2f; // Nearly straight
+                    balanceArmPitch = 45.0f; // Left arm settling
+                    break;
+                default: // Default/ready position
+                    swordArmPitch = 90.0f;
+                    swordElbowBend = 20.0f;
+                    balanceArmPitch = 90.0f;
+                    break;
+            }
+            
+            // Apply to right arm (sword arm) and left arm (balance arm)
+            rightShoulderPitch = swordArmPitch + rightArmAngle;
+            rightShoulderYaw = 20.0f + gSwordAttackTorsoRotation * 0.8f;
+            rightShoulderRoll = 40.0f + gSwordAttackArmExtension;
+            rightElbowBend = swordElbowBend;
+            
+            leftShoulderPitch = balanceArmPitch + leftArmAngle;
+            leftShoulderYaw = -20.0f - gSwordAttackTorsoRotation * 0.3f;
+            leftShoulderRoll = -40.0f;
+            leftElbowBend = 20.0f + gSwordAttackShoulderOffset * 0.3f;
+            
+        } else {
+            // Left arm sword attack - mirror the movements
+            switch (gSwordAttackPhase) {
+                case 1: // Wind up phase - raise arm high above head
+                    swordArmPitch = 120.0f + gSwordAttackShoulderOffset;
+                    swordElbowBend = 70.0f + abs(gSwordAttackShoulderOffset) * 0.8f;
+                    balanceArmPitch = 60.0f;
+                    break;
+                case 2: // Strike phase - powerful downward swing
+                    swordArmPitch = 45.0f + gSwordAttackArmExtension;
+                    swordElbowBend = 25.0f + gSwordAttackArmExtension * 0.4f;
+                    balanceArmPitch = 90.0f;
+                    break;
+                case 3: // Follow through - arm extends fully forward
+                    swordArmPitch = 30.0f + gSwordAttackArmExtension * 0.7f;
+                    swordElbowBend = 10.0f + gSwordAttackArmExtension * 0.2f;
+                    balanceArmPitch = 45.0f;
+                    break;
+                default:
+                    swordArmPitch = 90.0f;
+                    swordElbowBend = 20.0f;
+                    balanceArmPitch = 90.0f;
+                    break;
+            }
+            
+            // Apply to left arm (sword arm) and right arm (balance arm)
+            leftShoulderPitch = swordArmPitch + leftArmAngle;
+            leftShoulderYaw = -20.0f - gSwordAttackTorsoRotation * 0.8f;
+            leftShoulderRoll = -40.0f - gSwordAttackArmExtension;
+            leftElbowBend = swordElbowBend;
+            
+            rightShoulderPitch = balanceArmPitch + rightArmAngle;
+            rightShoulderYaw = 20.0f + gSwordAttackTorsoRotation * 0.3f;
+            rightShoulderRoll = 40.0f;
+            rightElbowBend = 20.0f + gSwordAttackShoulderOffset * 0.3f;
+        }
+        
+        // Make sure sword-holding hand forms a proper grip
+        if (gSwordVisible) {
+            if (gWeaponInRightHand) {
+                setHandForm(g_HandJoints2, HAND_GRIP_SWORD);
+                setHandForm(g_HandJoints, HAND_OPEN); // Left hand open for balance
+            } else {
+                setHandForm(g_HandJoints, HAND_GRIP_SWORD);
+                setHandForm(g_HandJoints2, HAND_OPEN); // Right hand open for balance
+            }
+        }
+    }
     else if (gBoxingAnimActive || gInBoxingStance) {
         // Use boxing stance pose values
         leftShoulderPitch = gCurrentLeftShoulderPitch;
@@ -4097,7 +4357,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         if (gSwordVisible && !gWeaponInRightHand) {
             glPushMatrix();
             // Position sword in front of hand for proper grip
-            glTranslatef(0.13f, 0.05f, 0.3f); // Move sword forward in front of hand (mirrored from right hand)
+            glTranslatef(0.03f, 0.05f, 0.3f); // Move sword forward in front of hand (moved left from mirrored position)
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward (same as right hand)
             glRotatef(-15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip (opposite direction)
             // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
@@ -4205,7 +4465,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         if (gSwordVisible && gWeaponInRightHand) {
             glPushMatrix();
             // Position sword in front of hand for proper grip
-            glTranslatef(-0.13f, 0.05f, 0.3f); // Move sword forward in front of hand (moved left by 0.3)
+            glTranslatef(-0.18f, 0.05f, 0.3f); // Move sword forward in front of hand (moved further left)
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward
             glRotatef(15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip
             // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
@@ -4285,6 +4545,11 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
     glRotatef(g_pose.torsoYaw, 0, 1, 0);
     glRotatef(g_pose.torsoPitch, 1, 0, 0);
     glRotatef(g_pose.torsoRoll, 0, 0, 1);
+    
+    // Apply sword attack animation torso rotation
+    if (gSwordAttackAnimating) {
+        glRotatef(gSwordAttackTorsoRotation, 0, 1, 0); // Rotate around Y-axis for sword swing
+    }
 
     // [KEEP] Arms
     drawArmsAndHands(leftArmAngle, rightArmAngle);
@@ -4369,7 +4634,10 @@ void setupSplitViewportPerspective() {
 void renderScene() {
     // Render background first (if enabled)
     if (gBackgroundVisible) {
+        glPushMatrix();
+        glTranslatef(0.0f, -2.5f, 0.0f); // Lower the entire background by 2.5 units
         BackgroundRenderer::render();
+        glPopMatrix();
     }
 
     // Common scene rendering logic for both orthographic and perspective modes
@@ -4402,8 +4670,8 @@ void renderScene() {
     glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
     float current_speed = gRunningAnim ? gRunSpeed : gWalkSpeed;
-    float max_hip_angle = gRunningAnim ? 20.0f : 10.0f;
-    float max_knee_angle = gRunningAnim ? 50.0f : 25.0f;
+    float max_hip_angle = gRunningAnim ? 25.0f : 15.0f;    // Fixed: Increased for better visibility
+    float max_knee_angle = gRunningAnim ? 60.0f : 35.0f;   // Fixed: Increased for more natural bend
 
     float left_leg_phase = gAnimTime * current_speed;
     float hip_angle_L = gIsMoving ? (max_hip_angle * sinf(left_leg_phase)) : 0.0f;
@@ -4412,6 +4680,15 @@ void renderScene() {
     float right_leg_phase = gAnimTime * current_speed + PI;
     float hip_angle_R = gIsMoving ? (max_hip_angle * sinf(right_leg_phase)) : 0.0f;
     float knee_angle_R = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(right_leg_phase))) : 0.0f;
+    
+    // Apply sword attack stance modifications
+    if (gSwordAttackAnimating) {
+        // Warrior stance: wider leg position, weight shifting
+        hip_angle_L += gSwordAttackLegStance * 0.5f; // Slight back leg position
+        hip_angle_R -= gSwordAttackLegStance * 0.3f; // Front leg forward
+        knee_angle_L += abs(gSwordAttackLegStance) * 0.2f; // Slight knee bend for stability
+        knee_angle_R += abs(gSwordAttackLegStance) * 0.3f; // More bend in front leg
+    }
 
     const float kneeY = 4.5f, kneeZ = 0.2f;
     const float hipY = 8.5f, hipZ = -0.2f;
@@ -4634,8 +4911,8 @@ void updateCharacter(float dt) {
         float angleRad = gCharacterYaw * PI / 180.0f;
         gCharacterPos.x -= sin(angleRad) * gMoveSpeed * dt;
         gCharacterPos.z -= cos(angleRad) * gMoveSpeed * dt;
-        float phaseSpeed = keyShift ? 10.0f : 5.0f;
-        gWalkPhase += gMoveSpeed * dt * phaseSpeed / (keyShift ? 2.5f : 2.0f);
+        float phaseSpeed = keyShift ? 8.0f : 6.0f;     // Fixed: More reasonable phase speeds
+        gWalkPhase += gMoveSpeed * dt * phaseSpeed / 2.0f;  // Fixed: Simplified calculation
     }
 
     // Update animations
@@ -4644,6 +4921,7 @@ void updateCharacter(float dt) {
     updateBoxingStance(dt);     // Add boxing stance animation updates
     updateJumpAnimation(dt);    // Add jump animation updates
     updateDance();              // Add K-pop dance animation updates
+    updateSwordAttackAnimation(dt); // Add sword attack animation updates
 
     // Update background animation
     BackgroundRenderer::update(dt);
@@ -4678,9 +4956,9 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'B') { toggleBoxingStance(); } // Toggle boxing stance (guard position)
         else if (wParam == 'H') { gShowJointVisuals = !gShowJointVisuals; } // Toggle joint visualization
         else if (wParam == 'X') { gSwordVisible = !gSwordVisible; } // Toggle sword visibility
+        else if (wParam == 'Z') { startSwordAttack(); } // Warrior sword attack animation
         else if (wParam == 'V') { gSpearVisible = !gSpearVisible; }
         else if (wParam == 'C') { gShieldVisible = !gShieldVisible; }
-        else if (wParam == 'Z') { gWeaponInRightHand = !gWeaponInRightHand; } // Switches ALL weapons
         else if (wParam == 'M') { gArmorVisible = !gArmorVisible; gConcreteHands = gArmorVisible;}
         // Helmet dome rotation controls
         //else if (wParam == '1') { g_helmetDomeRotationX += 5.0f; }

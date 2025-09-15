@@ -346,18 +346,18 @@ void BackgroundRenderer::loadTextureOnDemand(int textureIndex) {
         "texturess/Scorch Marks.bmp",         // TEX_SCORCH (17)
         "texturess/tattered banner.bmp",      // TEX_BANNER (18)
         "texturess/mixed forest.bmp",         // TEX_MIXED_FOREST (19)
-        "texturess/arrows.bmp",               // TEX_ARROWS (20)
+        "texturess/arrow.bmp",                // TEX_ARROWS (20)
         "texturess/battering rams.bmp",       // TEX_BATTERING_RAMS (21)
         "texturess/catapult stones.bmp",      // TEX_CATAPULT_STONES (22)
         "texturess/fallen warrior.bmp",       // TEX_FALLEN_WARRIOR (23)
         "texturess/knight formations.bmp",    // TEX_KNIGHT_FORMATIONS (24)
         "texturess/drums.bmp",                // TEX_DRUMS (25)
-        "texturess/campfire.bmp",             // TEX_CAMPFIRE (26)
-        "texturess/trebuchet.bmp",            // TEX_TREBUCHET (27)
-        "texturess/stars.bmp",                // TEX_STARS (28)
+        "texturess/camp fire.bmp",            // TEX_CAMPFIRE (26)
+        "texturess/trebuchets.bmp",           // TEX_TREBUCHET (27)
+        "texturess/star.bmp",                 // TEX_STARS (28)
         "texturess/trees.bmp",                // TEX_TREES (29)
-        "texturess/horse cavalry.bmp",        // TEX_HORSE_CAVALRY (30)
-        "texturess/archer formations.bmp",    // TEX_ARCHER_FORMATIONS (31)
+        "texturess/horses.bmp",               // TEX_HORSE_CAVALRY (30)
+        "texturess/knight formations.bmp",    // TEX_ARCHER_FORMATIONS (31)
         "texturess/wood.bmp",                 // TEX_WOOD (32)
         "texturess/blood stains.bmp",         // TEX_BLOOD_STAINS (33)
         "texturess/armor.bmp",                // TEX_ARMOR (34)
@@ -379,7 +379,14 @@ void BackgroundRenderer::bindTexture(int textureIndex) {
         if (textures[textureIndex] != 0) {
             glEnable(GL_TEXTURE_2D);
             glBindTexture(GL_TEXTURE_2D, textures[textureIndex]);
+            printf("Bound texture %d successfully\n", textureIndex);
+        } else {
+            printf("Warning: Failed to bind texture %d\n", textureIndex);
+            glDisable(GL_TEXTURE_2D);
         }
+    } else {
+        printf("Warning: Invalid texture index %d or textures not loaded\n", textureIndex);
+        glDisable(GL_TEXTURE_2D);
     }
 }
 
@@ -389,9 +396,13 @@ void BackgroundRenderer::drawSkyDome() {
     glDisable(GL_LIGHTING);
     glDepthMask(GL_FALSE);
     
+    printf("Drawing sky dome with texture...\n");
+    
     // Apply sky texture
     bindTexture(TEX_SKY);
-    glColor3f(1.0f, 1.0f, 1.0f);
+    
+    // Set nice sky blue color as fallback if texture fails
+    glColor3f(0.6f, 0.8f, 1.0f); // Light blue sky color
 
     // Smooth textured sky dome
     glBegin(GL_QUAD_STRIP);
@@ -429,6 +440,8 @@ void BackgroundRenderer::drawSkyDome() {
     glDepthMask(GL_TRUE);
     glEnable(GL_LIGHTING);
     glPopMatrix();
+    
+    printf("Sky dome rendering complete\n");
 }
 
 void BackgroundRenderer::drawSunOrMoon() {
@@ -463,15 +476,17 @@ void BackgroundRenderer::drawSunOrMoon() {
         gluSphere(quadric, 8.0f, 18, 14);
         
         // Main sun disc with texture - use a textured quad facing the camera
+        printf("Drawing sun with texture...\n");
         bindTexture(TEX_SUN);
         glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         glBegin(GL_QUADS);
-        glTexCoord2f(0.0f, 0.0f); glVertex3f(-6.0f, -6.0f, 0.0f);
-        glTexCoord2f(1.0f, 0.0f); glVertex3f(6.0f, -6.0f, 0.0f);
-        glTexCoord2f(1.0f, 1.0f); glVertex3f(6.0f, 6.0f, 0.0f);
-        glTexCoord2f(0.0f, 1.0f); glVertex3f(-6.0f, 6.0f, 0.0f);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(-8.0f, -8.0f, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(8.0f, -8.0f, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(8.0f, 8.0f, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(-8.0f, 8.0f, 0.0f);
         glEnd();
         glDisable(GL_TEXTURE_2D);
+        printf("Sun texture applied\n");
         
         // Inner bright core for additional glow effect
         glColor4f(1.0f, 1.0f, 0.9f, 0.4f);
@@ -487,15 +502,17 @@ void BackgroundRenderer::drawSunOrMoon() {
         gluSphere(quadric, 6.0f, 18, 14);
         
         // Main moon disc with texture - use a textured quad facing the camera
+        printf("Drawing moon with texture...\n");
         bindTexture(TEX_MOON);
         glColor4f(1.0f, 1.0f, 1.0f, 0.9f);
         glBegin(GL_QUADS);
-        glTexCoord2f(0.0f, 0.0f); glVertex3f(-5.0f, -5.0f, 0.0f);
-        glTexCoord2f(1.0f, 0.0f); glVertex3f(5.0f, -5.0f, 0.0f);
-        glTexCoord2f(1.0f, 1.0f); glVertex3f(5.0f, 5.0f, 0.0f);
-        glTexCoord2f(0.0f, 1.0f); glVertex3f(-5.0f, 5.0f, 0.0f);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(-6.0f, -6.0f, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(6.0f, -6.0f, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(6.0f, 6.0f, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(-6.0f, 6.0f, 0.0f);
         glEnd();
         glDisable(GL_TEXTURE_2D);
+        printf("Moon texture applied\n");
     }
 
     glDisable(GL_BLEND);

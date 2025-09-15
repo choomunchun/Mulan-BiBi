@@ -6,7 +6,11 @@
 namespace Tex {
     enum Name {
         Skin,         // skin.bmp
-        Skirt,        // skirt.bmp
+        Skirt,        // skirt.bmp (default)
+        SkirtPink,    // texturess/pink skirt.bmp
+        SkirtTiffany, // texturess/tiffany skirt.bmp
+        SkirtRed,     // texturess/red skirt.bmp
+        SkirtYellow,  // texturess/yellow skirt.bmp
         Helmet,       // helmet.bmp
         Armor,        // armor.bmp
         Sabatons,     // sabatons.bmp
@@ -33,4 +37,11 @@ namespace Tex {
     void enableObjectLinearST(float sX, float sZ, float tY);
     void disableObjectLinearST();
     extern bool g_TextureEnabled;
+
+    // Skirt texture cycling support
+    extern int currentSkirtIndex;
+    extern const int skirtTextureCount;
+    extern Name skirtTextures[5];
+    void cycleSkirtTexture();
+    GLuint getCurrentSkirtTexture();
 }

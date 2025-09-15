@@ -4030,7 +4030,7 @@ void drawTorso() {
     // ===== Main torso (skirt/cloth) =====
     {
         setSolidColorIfNeeded(0.2f, 0.4f, 0.8f);            // SOLID / WIREFRAME color
-        TextureScope ts(Tex::id[Tex::Skirt], /*useTexGen*/true, 0.5f, 0.5f, 1.0f);
+        TextureScope ts(Tex::getCurrentSkirtTexture(), /*useTexGen*/true, 0.5f, 0.5f, 1.0f);
 
         glBegin(GL_TRIANGLES);
         drawCurvedBand(R0, Y0, R1, Y1, segCos, segSin);
@@ -4125,7 +4125,7 @@ void drawInternalShoulderJoints() {
     const bool useTex = (gRenderMode == RM_TEXTURED) || g_TextureEnabled;
     if (useTex) {
         glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Skirt]);   // skirt.bmp (same as torso)
+        Tex::bind(Tex::getCurrentSkirtTexture());   // Use current skirt texture (same as torso)
         Tex::enableObjectLinearST(0.75f, 0.75f, 0.75f);
         glColor3f(1, 1, 1);
     }
@@ -5234,7 +5234,7 @@ void renderScene() {
 }
 
 void display() {
-    glClearColor(0.6f, 0.3f, 0.7f, 1.0f);
+    glClearColor(0.5f, 0.7f, 0.9f, 1.0f); // Natural sky blue background
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_PROJECTION); glLoadIdentity();
@@ -5254,10 +5254,12 @@ void display() {
         float aspect = (float)halfWidth / gHeight;
         glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
 
-        // Render scene in orthographic mode (left half)
+        // Render scene in orthographic mode (left half) - True top-down view with mouse pitch control
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-        Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
-        gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+        // Ensure camera is above target looking down (negative Y offset means camera is above)
+        float orthoPitch = -1.57f + (gPitch * 0.5f); // Start at -90° (straight down) and allow mouse adjustment
+        Vec3 orthoEye; { orthoEye.x = gTarget.x + gDist * cosf(orthoPitch) * sinf(gYaw); orthoEye.y = gTarget.y - gDist * sinf(orthoPitch); orthoEye.z = gTarget.z + gDist * cosf(orthoPitch) * cosf(gYaw); }
+        gluLookAt(orthoEye.x, orthoEye.y, orthoEye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
 
         // Render the scene for orthographic view
         renderScene();
@@ -5270,6 +5272,7 @@ void display() {
 
         // Render scene in perspective mode (right half)
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+        Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
         gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
 
         // Render the scene for perspective view
@@ -5295,8 +5298,17 @@ void display() {
     }
 
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
-    gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+    if (gProjMode == PROJ_ORTHOGRAPHIC) {
+        // True top-down orthographic view with mouse pitch control
+        // Ensure camera is above target looking down (negative Y offset means camera is above)
+        float orthoPitch = -1.57f + (gPitch * 0.5f); // Start at -90° (straight down) and allow mouse adjustment
+        Vec3 orthoEye; { orthoEye.x = gTarget.x + gDist * cosf(orthoPitch) * sinf(gYaw); orthoEye.y = gTarget.y - gDist * sinf(orthoPitch); orthoEye.z = gTarget.z + gDist * cosf(orthoPitch) * cosf(gYaw); }
+        gluLookAt(orthoEye.x, orthoEye.y, orthoEye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+    } else {
+        // Standard perspective view with orbital camera
+        Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
+        gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
+    }
 
     // Update animation and movement state
     gIsMoving = keyUp || keydown;
@@ -5315,6 +5327,13 @@ void display() {
 // ===================================================================
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Debug console disabled - remove console window
+    // AllocConsole();
+    // freopen_s((FILE**)stdout, "CONOUT$", "w", stdout);
+    // freopen_s((FILE**)stderr, "CONOUT$", "w", stderr);
+    
+    // printf("Starting Full Body Model Viewer...\n");
+    // printf("Skirt texture cycling: Use H key to cycle through textures\n");
     WNDCLASSEXA wc{}; wc.cbSize = sizeof(WNDCLASSEXA); wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC; wc.lpfnWndProc = WindowProcedure; wc.hInstance = GetModuleHandle(NULL); wc.lpszClassName = WINDOW_TITLE;
     if (!RegisterClassExA(&wc))return 0;
     HWND hWnd = CreateWindowA(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight, NULL, NULL, wc.hInstance, NULL);
@@ -5482,7 +5501,18 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'F') { toggleFistAnimation(); } // Toggle fist animation
         else if (wParam == 'G') { startDance(); } // K-pop dance animation
         else if (wParam == 'B') { toggleBoxingStance(); } // Toggle boxing stance (guard position)
-        else if (wParam == 'H') { gShowJointVisuals = !gShowJointVisuals; } // Toggle joint visualization
+        else if (wParam == 'H') { // H key - Cycle skirt texture
+            printf("H key pressed - cycling skirt texture\n");
+            Tex::cycleSkirtTexture();
+            InvalidateRect(hWnd, NULL, FALSE); // Force screen redraw
+        }
+        else if (wParam == VK_OEM_3) { // Backtick (`) key - Cycle skirt texture
+            Tex::cycleSkirtTexture();
+            InvalidateRect(hWnd, NULL, FALSE); // Force screen redraw
+        }
+        else if (wParam == 'U') { // Test key for debugging keyboard input
+            printf("U key test - Keyboard input system working correctly\n");
+        }
         else if (wParam == 'X') { 
             if (gSwordVisible) {
                 gSwordVisible = false; // Hide sword
@@ -5582,6 +5612,10 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             // Reset background settings
             gBackgroundVisible = true;
             BackgroundRenderer::collisionDebugMode = false;
+            
+            // Reset skirt texture to default
+            Tex::currentSkirtIndex = 0;
+            printf("Skirt texture reset to: Default Skirt (Index: 0)\n");
             
             printf("=== EVERYTHING RESET ===");
         }

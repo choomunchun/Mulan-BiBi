@@ -1,6 +1,7 @@
 #include "shield.h"
 #include <Windows.h>
 #include <gl/GL.h>
+#include <gl/GLU.h>
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include "texture.h"
@@ -101,5 +102,51 @@ void drawShield()
     if (gRenderMode == RM_TEXTURED) {
         Tex::disableObjectLinearST();
         Tex::unbind();
+    }
+
+    // --- 3. Draw the shield handle ---
+    // Handle should be on the back of the shield, extending outward for grip
+    if (gRenderMode != RM_TEXTURED) {
+        glColor3f(0.4f, 0.2f, 0.1f); // Brown leather/wood color for handle
+    }
+
+    GLUquadric* handleQuadric = gluNewQuadric();
+    if (handleQuadric) {
+        gluQuadricNormals(handleQuadric, GLU_SMOOTH);
+        
+        // Main grip handle - vertical bar positioned where hand can reach it
+        glPushMatrix();
+        glTranslatef(0.0f, 0.0f, -0.1f); // Position closer to shield back to eliminate gap
+        glRotatef(180.0f, 1.0f, 0.0f, 0.0f); // Rotate 180 degrees around X-axis
+        gluCylinder(handleQuadric, 0.18f, 0.18f, 2.0f, 22, 8); // Grip handle connected to shield
+        glPopMatrix();
+        
+        // Handle mounting brackets - connect handle to shield (adjusted for repositioned handle)
+        // Top bracket
+        glPushMatrix();
+        glTranslatef(0.0f, 0.5f, -0.05f); // Closer to shield surface
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Rotate to connect to vertical handle
+        gluCylinder(handleQuadric, 0.06f, 0.06f, 0.15f, 8, 2); // Shorter bracket to connect properly
+        glPopMatrix();
+        
+        // Bottom bracket
+        glPushMatrix();
+        glTranslatef(0.0f, -0.5f, -0.05f); // Closer to shield surface
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Rotate to connect to vertical handle
+        gluCylinder(handleQuadric, 0.06f, 0.06f, 0.15f, 8, 2); // Shorter bracket to connect properly
+        glPopMatrix();
+        
+        // Handle end caps for better grip
+        glPushMatrix();
+        glTranslatef(0.0f, 0.5f, 0.5f); // Aligned with handle position
+        gluSphere(handleQuadric, 0.1f, 8, 8);
+        glPopMatrix();
+        
+        glPushMatrix();
+        glTranslatef(0.0f, -0.5f, 0.5f); // Aligned with handle position
+        gluSphere(handleQuadric, 0.1f, 8, 8);
+        glPopMatrix();
+        
+        gluDeleteQuadric(handleQuadric);
     }
 }

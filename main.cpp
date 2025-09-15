@@ -3044,36 +3044,36 @@ static void drawConcreteFinger(const std::vector<HandJoint>& joints, int mcpIdx,
 
 void setHandForm(std::vector<HandJoint>& joints, HandForm form) {
     switch (form) {
-    case HAND_FIST: { // Closed fist - all fingers curled inward
+    case HAND_FIST: { // Closed fist - all fingers curled tightly into palm
         // Thumb - bent inward across palm
-        joints[1].position = { 0.3f, -0.2f, 0.3f };
-        joints[2].position = { 0.4f, -0.4f, 0.5f };
-        joints[3].position = { 0.3f, -0.5f, 0.7f };
-        joints[4].position = { 0.2f, -0.6f, 0.8f };
+        joints[1].position = { 0.3f, -0.3f, 0.2f };
+        joints[2].position = { 0.4f, -0.5f, 0.3f };
+        joints[3].position = { 0.3f, -0.6f, 0.4f };
+        joints[4].position = { 0.2f, -0.7f, 0.5f };
 
-        // Index finger - curled into fist
+        // Index finger - curled tightly into fist towards palm
         joints[5].position = { 0.2f, 0.1f, 1.0f };
-        joints[6].position = { 0.1f, -0.2f, 1.3f };
-        joints[7].position = { 0.0f, -0.5f, 1.4f };
-        joints[8].position = { -0.1f, -0.7f, 1.3f };
+        joints[6].position = { 0.1f, -0.3f, 1.1f };
+        joints[7].position = { 0.0f, -0.6f, 0.8f };
+        joints[8].position = { -0.1f, -0.8f, 0.5f };
 
-        // Middle finger - curled into fist
+        // Middle finger - curled tightly into fist towards palm
         joints[9].position = { 0.0f, 0.1f, 1.1f };
-        joints[10].position = { -0.1f, -0.2f, 1.4f };
-        joints[11].position = { -0.2f, -0.5f, 1.5f };
-        joints[12].position = { -0.3f, -0.7f, 1.4f };
+        joints[10].position = { -0.1f, -0.3f, 1.2f };
+        joints[11].position = { -0.2f, -0.6f, 0.9f };
+        joints[12].position = { -0.3f, -0.8f, 0.6f };
 
-        // Ring finger - curled into fist
+        // Ring finger - curled tightly into fist towards palm
         joints[13].position = { -0.2f, 0.1f, 1.0f };
-        joints[14].position = { -0.3f, -0.2f, 1.3f };
-        joints[15].position = { -0.4f, -0.5f, 1.4f };
-        joints[16].position = { -0.5f, -0.7f, 1.3f };
+        joints[14].position = { -0.3f, -0.3f, 1.1f };
+        joints[15].position = { -0.4f, -0.6f, 0.8f };
+        joints[16].position = { -0.5f, -0.8f, 0.5f };
 
-        // Pinky - curled into fist
+        // Pinky - curled tightly into fist towards palm
         joints[17].position = { -0.4f, 0.05f, 0.8f };
-        joints[18].position = { -0.5f, -0.2f, 1.1f };
-        joints[19].position = { -0.6f, -0.4f, 1.2f };
-        joints[20].position = { -0.7f, -0.6f, 1.1f };
+        joints[18].position = { -0.5f, -0.3f, 0.9f };
+        joints[19].position = { -0.6f, -0.5f, 0.7f };
+        joints[20].position = { -0.7f, -0.7f, 0.4f };
         break;
     }
     case HAND_GRIP_SPEAR: {
@@ -4666,20 +4666,21 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             Vec3 elbowPos = g_ArmJoints[3].position;
             glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
             
+            //shield 位置
             // Adjust shield position based on animation state
             if (gShieldBlockAnimating && gShieldBlockPhase >= 1) {
                 // During shield defense animation - completely cover hand
-                glTranslatef(0.1f, -0.5f, 1.0f); // Move shield forward and down to completely cover hand
-                glRotatef(-60.0f, 0, 1, 0); // Reduced Y rotation for frontal coverage
+                glTranslatef(0.1f, -0.5f, 0.5f); // Position for defensive coverage with grip alignment
+                glRotatef(-60.0f, 0, 1, 0); // Enhanced Y rotation for frontal coverage
                 glRotatef(45.0f, 1, 0, 0); // Strong upward tilt to block view of hand
-                glRotatef(-25.0f, 0, 0, 1); // More roll to wrap around hand area
-                glScalef(0.5f, 0.5f, 0.5f); // Slightly larger shield for better coverage
+                glRotatef(-25.0f, 0, 0, 1); // Roll to wrap around hand area
+                glScalef(0.5f, 0.5f, 0.5f); // Larger shield for better coverage
             } else {
-                // Normal shield position when just visible
-                glTranslatef(-0.1f, -0.2f, 0.5f); // Standard position
-                glRotatef(-80.0f, 0, 1, 0);
-                glRotatef(25.0f, 1, 0, 0);
-                glRotatef(-15.0f, 0, 0, 1);
+                // Normal shield position when just visible - positioned for hand to grasp vertical grip
+                glTranslatef(-0.15f, 0.05f, 0.8f); // Move shield much closer to hand for proper gripping
+                glRotatef(-45.0f, 0, 1, 0); // Reduced rotation for better grip access
+                glRotatef(5.0f, 1, 0, 0); // Minimal upward tilt
+                glRotatef(0.0f, 0, 0, 1); // No roll adjustment
                 glScalef(0.4f, 0.4f, 0.4f);
             }
             

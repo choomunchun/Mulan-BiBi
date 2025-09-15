@@ -4665,11 +4665,24 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             // Position relative to the elbow to attach to forearm
             Vec3 elbowPos = g_ArmJoints[3].position;
             glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
-            glTranslatef(-0.1f, -0.2f, 0.5f); // Adjusted position to reveal hand better
-            glRotatef(-80.0f, 0, 1, 0);
-            glRotatef(25.0f, 1, 0, 0); // Increased upward tilt to reveal hand
-            glRotatef(-15.0f, 0, 0, 1); // Slight roll to angle shield away from hand
-            glScalef(0.4f, 0.4f, 0.4f);
+            
+            // Adjust shield position based on animation state
+            if (gShieldBlockAnimating && gShieldBlockPhase >= 1) {
+                // During shield defense animation - completely cover hand
+                glTranslatef(0.1f, -0.5f, 1.0f); // Move shield forward and down to completely cover hand
+                glRotatef(-60.0f, 0, 1, 0); // Reduced Y rotation for frontal coverage
+                glRotatef(45.0f, 1, 0, 0); // Strong upward tilt to block view of hand
+                glRotatef(-25.0f, 0, 0, 1); // More roll to wrap around hand area
+                glScalef(0.5f, 0.5f, 0.5f); // Slightly larger shield for better coverage
+            } else {
+                // Normal shield position when just visible
+                glTranslatef(-0.1f, -0.2f, 0.5f); // Standard position
+                glRotatef(-80.0f, 0, 1, 0);
+                glRotatef(25.0f, 1, 0, 0);
+                glRotatef(-15.0f, 0, 0, 1);
+                glScalef(0.4f, 0.4f, 0.4f);
+            }
+            
             drawShield();
             glPopMatrix();
         }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <ctime>
 #include <cmath>
+#include <cstring>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -25,8 +26,17 @@ std::vector<Spark> BackgroundRenderer::sparks;
 std::vector<Arrow> BackgroundRenderer::arrows;
 std::vector<Ember> BackgroundRenderer::embers;
 
+// Audio system variables
+bool BackgroundRenderer::warSoundPlaying = false;
+bool BackgroundRenderer::warSoundInitialized = false;
+float BackgroundRenderer::warSoundVolume = 0.7f;
+
+// Collision detection variables
+std::vector<BackgroundRenderer::CollisionBox> BackgroundRenderer::collisionBoxes;
+bool BackgroundRenderer::collisionDebugMode = false;
+
 // Texture system variables
-GLuint BackgroundRenderer::textures[32];
+GLuint BackgroundRenderer::textures[50];
 bool BackgroundRenderer::texturesLoaded = false;
 
 
@@ -57,6 +67,16 @@ void BackgroundRenderer::init() {
     // Load all textures
     printf("Loading all textures...\n");
     loadAllTextures();
+    
+    // Initialize audio system
+    printf("Initializing audio system...\n");
+    warSoundInitialized = true;
+    warSoundPlaying = false;
+    
+    // Initialize collision detection system
+    printf("Initializing collision detection...\n");
+    initializeCollisionBoxes();
+    
     printf("BackgroundRenderer initialization complete.\n");
 }
 
@@ -68,9 +88,16 @@ void BackgroundRenderer::cleanup() {
     
     // Clean up textures
     if (texturesLoaded) {
-        glDeleteTextures(20, textures);
+        glDeleteTextures(50, textures);
         texturesLoaded = false;
     }
+    
+    // Stop any playing audio
+    if (warSoundPlaying) {
+        stopWarSound();
+    }
+    
+    warSoundInitialized = false;
 }
 
 void BackgroundRenderer::update(float deltaTime) {
@@ -269,6 +296,24 @@ void BackgroundRenderer::loadAllTextures() {
     textures[TEX_SCORCH] = 0;
     textures[TEX_BANNER] = 0;
     textures[TEX_MIXED_FOREST] = 0;
+    textures[TEX_ARROWS] = 0;
+    textures[TEX_BATTERING_RAMS] = 0;
+    textures[TEX_CATAPULT_STONES] = 0;
+    textures[TEX_FALLEN_WARRIOR] = 0;
+    textures[TEX_KNIGHT_FORMATIONS] = 0;
+    textures[TEX_DRUMS] = 0;
+    textures[TEX_CAMPFIRE] = 0;
+    textures[TEX_TREBUCHET] = 0;
+    textures[TEX_STARS] = 0;
+    textures[TEX_TREES] = 0;
+    textures[TEX_HORSE_CAVALRY] = 0;
+    textures[TEX_ARCHER_FORMATIONS] = 0;
+    textures[TEX_WOOD] = 0;
+    textures[TEX_BLOOD_STAINS] = 0;
+    textures[TEX_ARMOR] = 0;
+    textures[TEX_SKIN] = 0;
+    textures[TEX_HELMET] = 0;
+    textures[TEX_SABATONS] = 0;
     
     texturesLoaded = true;
     printf("Essential textures loaded successfully.\n");
@@ -276,7 +321,7 @@ void BackgroundRenderer::loadAllTextures() {
 
 // Load texture on-demand to reduce memory usage
 void BackgroundRenderer::loadTextureOnDemand(int textureIndex) {
-    if (textureIndex < 0 || textureIndex >= 32 || textures[textureIndex] != 0) {
+    if (textureIndex < 0 || textureIndex >= 50 || textures[textureIndex] != 0) {
         return; // Already loaded or invalid index
     }
     
@@ -312,14 +357,20 @@ void BackgroundRenderer::loadTextureOnDemand(int textureIndex) {
         "texturess/stars.bmp",                // TEX_STARS (28)
         "texturess/trees.bmp",                // TEX_TREES (29)
         "texturess/horse cavalry.bmp",        // TEX_HORSE_CAVALRY (30)
-        "texturess/archer formations.bmp"     // TEX_ARCHER_FORMATIONS (31)
+        "texturess/archer formations.bmp",    // TEX_ARCHER_FORMATIONS (31)
+        "texturess/wood.bmp",                 // TEX_WOOD (32)
+        "texturess/blood stains.bmp",         // TEX_BLOOD_STAINS (33)
+        "texturess/armor.bmp",                // TEX_ARMOR (34)
+        "texturess/skin.bmp",                 // TEX_SKIN (35)
+        "texturess/helmet.bmp",               // TEX_HELMET (36)
+        "texturess/sabatons.bmp"              // TEX_SABATONS (37)
     };
     
     textures[textureIndex] = loadBMPTexture(filenames[textureIndex]);
 }
 
 void BackgroundRenderer::bindTexture(int textureIndex) {
-    if (texturesLoaded && textureIndex >= 0 && textureIndex < 32) {
+    if (texturesLoaded && textureIndex >= 0 && textureIndex < 50) {
         // Load texture on-demand if not already loaded
         if (textures[textureIndex] == 0) {
             loadTextureOnDemand(textureIndex);
@@ -916,6 +967,49 @@ void BackgroundRenderer::drawBattlefield() {
     }
 
     glDisable(GL_TEXTURE_2D); // Disable texture for other elements
+
+    // Add blood stains texture overlays on battlefield terrain
+    bindTexture(TEX_BLOOD_STAINS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.8f, 0.2f, 0.1f, 0.7f); // Dark red blood color with transparency
+    glDisable(GL_LIGHTING);
+    
+    // Major blood stain areas from fierce battles
+    glBegin(GL_QUADS);
+    
+    // Large blood pool from major combat
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-25.0f, 0.12f, -10.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(-10.0f, 0.12f, -12.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(-8.0f, 0.12f, 3.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-23.0f, 0.12f, 5.0f);
+    
+    // Blood stains near fallen warriors
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(12.0f, 0.11f, -18.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(28.0f, 0.11f, -20.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(30.0f, 0.11f, -5.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(14.0f, 0.11f, -3.0f);
+    
+    // Scattered blood stains from arrow wounds and sword fights
+    for (int bloodSpot = 0; bloodSpot < 15; bloodSpot++) {
+        float bx = -40.0f + bloodSpot * 5.5f + sin(bloodSpot * 1.8f) * 8.0f;
+        float bz = -30.0f + bloodSpot * 4.0f + cos(bloodSpot * 1.4f) * 12.0f;
+        float size = 2.0f + sin(bloodSpot * 0.9f) * 1.2f;
+        
+        // Vary blood stain intensity
+        float intensity = 0.5f + (bloodSpot % 3) * 0.15f;
+        glColor4f(0.7f + intensity * 0.2f, 0.1f + intensity * 0.1f, 0.05f, 0.6f + intensity * 0.2f);
+        
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(bx - size, 0.08f + bloodSpot * 0.002f, bz - size * 0.8f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(bx + size * 1.2f, 0.08f + bloodSpot * 0.002f, bz - size * 0.6f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(bx + size, 0.08f + bloodSpot * 0.002f, bz + size * 1.1f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(bx - size * 0.9f, 0.08f + bloodSpot * 0.002f, bz + size * 0.9f);
+    }
+    
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_LIGHTING);
+    glDisable(GL_BLEND);
 
     // Multiple realistic battle craters of varying sizes
     glColor3f(0.12f, 0.08f, 0.04f); // Very dark crater soil
@@ -2380,16 +2474,31 @@ void BackgroundRenderer::drawWeaponRacks() {
 
 void BackgroundRenderer::drawChineseWarDrums() {
     // Large Chinese war drums positioned with Chinese forces
-    glColor3f(0.6f, 0.2f, 0.1f); // Dark red lacquer
+    // Apply wood texture as specifically requested for drums
+    bindTexture(TEX_WOOD);
+    glColor3f(0.8f, 0.4f, 0.2f); // Warm wood color to blend with texture
     
     // Main battle drum near Chinese camp
     glPushMatrix();
     glTranslatef(-65.0f, 0.0f, 15.0f);
     
-    // Drum body - cylinder
-    gluCylinder(quadric, 2.5f, 2.5f, 1.5f, 16, 2);
+    // Drum body - cylinder with wood texture
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= 16; i++) {
+        float angle = i * 2.0f * M_PI / 16.0f;
+        float x = 2.5f * cos(angle);
+        float z = 2.5f * sin(angle);
+        float u = (float)i / 16.0f;
+        
+        glTexCoord2f(u, 0.0f);
+        glVertex3f(x, 0.0f, z);
+        glTexCoord2f(u, 1.0f);
+        glVertex3f(x, 1.5f, z);
+    }
+    glEnd();
     
-    // Drum heads (top and bottom)
+    // Drum heads (top and bottom) - switch to hide texture for drum skin
+    glDisable(GL_TEXTURE_2D);
     glColor3f(0.8f, 0.7f, 0.5f); // Animal hide color
     glPushMatrix();
     glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
@@ -2398,17 +2507,33 @@ void BackgroundRenderer::drawChineseWarDrums() {
     gluDisk(quadric, 0.0f, 2.5f, 16, 1);
     glPopMatrix();
     
-    // Drum stand legs
-    glColor3f(0.3f, 0.25f, 0.2f);
+    // Drum stand legs - back to wood texture
+    bindTexture(TEX_WOOD);
+    glColor3f(0.6f, 0.3f, 0.15f); // Darker wood for legs
     for (int leg = 0; leg < 4; leg++) {
         glPushMatrix();
         float angle = leg * M_PI / 2.0f;
         glTranslatef(cos(angle) * 2.8f, -1.0f, sin(angle) * 2.8f);
-        gluCylinder(quadric, 0.15f, 0.15f, 2.0f, 6, 1);
+        
+        // Textured cylindrical leg
+        glBegin(GL_QUAD_STRIP);
+        for (int i = 0; i <= 8; i++) {
+            float legAngle = i * 2.0f * M_PI / 8.0f;
+            float lx = 0.15f * cos(legAngle);
+            float lz = 0.15f * sin(legAngle);
+            float u = (float)i / 8.0f;
+            
+            glTexCoord2f(u, 0.0f);
+            glVertex3f(lx, 0.0f, lz);
+            glTexCoord2f(u, 1.0f);
+            glVertex3f(lx, 2.0f, lz);
+        }
+        glEnd();
         glPopMatrix();
     }
     
-    // Decorative dragon carvings on drum sides
+    // Decorative dragon carvings on drum sides - disable texture for carvings
+    glDisable(GL_TEXTURE_2D);
     glColor3f(0.9f, 0.7f, 0.2f); // Gold dragon
     glLineWidth(3.0f);
     glBegin(GL_LINES);
@@ -2425,7 +2550,9 @@ void BackgroundRenderer::drawChineseWarDrums() {
     glEnd();
     glPopMatrix();
     
-    // Smaller drums around the battlefield
+    // Smaller drums around the battlefield - also with wood texture
+    bindTexture(TEX_WOOD);
+    glColor3f(0.7f, 0.35f, 0.18f); // Slightly different wood tone
     for (int drum = 0; drum < 3; drum++) {
         glPushMatrix();
         float dx = -50.0f + drum * 15.0f;
@@ -2433,9 +2560,23 @@ void BackgroundRenderer::drawChineseWarDrums() {
         glTranslatef(dx, 0.0f, dz);
         glScalef(0.6f, 0.6f, 0.6f);
         
-        glColor3f(0.5f, 0.15f, 0.08f);
-        gluCylinder(quadric, 2.0f, 2.0f, 1.2f, 12, 2);
+        // Textured drum body
+        glBegin(GL_QUAD_STRIP);
+        for (int i = 0; i <= 12; i++) {
+            float angle = i * 2.0f * M_PI / 12.0f;
+            float x = 2.0f * cos(angle);
+            float z = 2.0f * sin(angle);
+            float u = (float)i / 12.0f;
+            
+            glTexCoord2f(u, 0.0f);
+            glVertex3f(x, 0.0f, z);
+            glTexCoord2f(u, 1.0f);
+            glVertex3f(x, 1.2f, z);
+        }
+        glEnd();
         
+        // Drum heads without texture
+        glDisable(GL_TEXTURE_2D);
         glColor3f(0.7f, 0.6f, 0.4f);
         glPushMatrix();
         glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
@@ -2444,9 +2585,12 @@ void BackgroundRenderer::drawChineseWarDrums() {
         gluDisk(quadric, 0.0f, 2.0f, 12, 1);
         glPopMatrix();
         
+        bindTexture(TEX_WOOD); // Re-enable for next drum
+        glColor3f(0.7f, 0.35f, 0.18f);
         glPopMatrix();
     }
     
+    glDisable(GL_TEXTURE_2D);
     glLineWidth(1.0f);
 }
 
@@ -2725,9 +2869,11 @@ void BackgroundRenderer::drawFires() {
 void BackgroundRenderer::drawFallenWarriors() {
     glDisable(GL_LIGHTING);
     
-    // Chinese warriors - darker clothing and armor
-    glColor3f(0.15f, 0.1f, 0.08f); // Dark clothing
+    // Apply fallen warrior texture for realistic detail
+    bindTexture(TEX_FALLEN_WARRIOR);
+    glColor3f(1.0f, 1.0f, 1.0f); // White to show texture properly
     
+    // Chinese warriors - with enhanced texturing
     for (int warrior = 0; warrior < 12; warrior++) {
         glPushMatrix();
         
@@ -2738,54 +2884,66 @@ void BackgroundRenderer::drawFallenWarriors() {
         glTranslatef(wx, 0.02f, wz);
         glRotatef(angle, 0.0f, 1.0f, 0.0f);
         
-        // Body (elongated ellipse lying down)
+        // Body (elongated ellipse lying down) - now textured
         glPushMatrix();
         glScalef(0.4f, 0.15f, 1.8f); // Prone figure
-        gluSphere(quadric, 1.0f, 8, 6);
+        
+        // Use textured quad for body instead of sphere for better texture display
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -0.5f, -1.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, -0.5f, -1.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 0.5f, 1.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 0.5f, 1.0f);
+        glEnd();
         glPopMatrix();
         
-        // Head
+        // Head with skin texture
+        bindTexture(TEX_SKIN);
+        glColor3f(0.9f, 0.8f, 0.7f); // Slight skin tone tint
         glPushMatrix();
         glTranslatef(0.0f, 0.1f, 0.9f);
         glScalef(0.3f, 0.25f, 0.3f);
-        glColor3f(0.4f, 0.3f, 0.2f); // Skin tone
-        gluSphere(quadric, 1.0f, 6, 4);
+        gluSphere(quadric, 1.0f, 8, 6);
         glPopMatrix();
         
-        // Arms
-        glColor3f(0.15f, 0.1f, 0.08f);
+        // Arms with armor texture
+        bindTexture(TEX_ARMOR);
+        glColor3f(0.8f, 0.8f, 0.85f); // Metallic tint
         glPushMatrix();
         glTranslatef(0.6f, 0.05f, 0.3f);
         glRotatef(30.0f + warrior * 10.0f, 0.0f, 0.0f, 1.0f);
         glScalef(0.15f, 0.12f, 0.8f);
-        gluSphere(quadric, 1.0f, 4, 3);
+        gluSphere(quadric, 1.0f, 6, 4);
         glPopMatrix();
         
         glPushMatrix();
         glTranslatef(-0.6f, 0.05f, 0.2f);
         glRotatef(-25.0f - warrior * 8.0f, 0.0f, 0.0f, 1.0f);
         glScalef(0.15f, 0.12f, 0.7f);
-        gluSphere(quadric, 1.0f, 4, 3);
+        gluSphere(quadric, 1.0f, 6, 4);
         glPopMatrix();
         
-        // Legs
+        // Legs with sabatons texture
+        bindTexture(TEX_SABATONS);
+        glColor3f(0.7f, 0.7f, 0.75f); // Boot/armor tint
         glPushMatrix();
         glTranslatef(0.3f, 0.03f, -0.8f);
         glScalef(0.18f, 0.15f, 1.0f);
-        gluSphere(quadric, 1.0f, 4, 3);
+        gluSphere(quadric, 1.0f, 6, 4);
         glPopMatrix();
         
         glPushMatrix();
         glTranslatef(-0.3f, 0.03f, -0.9f);
         glScalef(0.18f, 0.15f, 1.1f);
-        gluSphere(quadric, 1.0f, 4, 3);
+        gluSphere(quadric, 1.0f, 6, 4);
         glPopMatrix();
         
         glPopMatrix();
     }
     
-    // Western/European warriors - different colors and positions
-    glColor3f(0.25f, 0.22f, 0.18f); // Chainmail and cloth
+    // Western/European warriors - with enhanced texturing
+    bindTexture(TEX_FALLEN_WARRIOR);
+    glColor3f(0.9f, 0.9f, 0.95f); // Slightly different tone for Western warriors
     
     for (int western = 0; western < 10; western++) {
         glPushMatrix();
@@ -2797,39 +2955,47 @@ void BackgroundRenderer::drawFallenWarriors() {
         glTranslatef(wx, 0.03f, wz);
         glRotatef(angle, 0.0f, 1.0f, 0.0f);
         
-        // Slightly different body proportions 
+        // Textured body for Western warriors
         glPushMatrix();
         glScalef(0.45f, 0.18f, 1.7f);
-        gluSphere(quadric, 1.0f, 8, 6);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -0.5f, -1.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, -0.5f, -1.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 0.5f, 1.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 0.5f, 1.0f);
+        glEnd();
         glPopMatrix();
         
-        // Helmet/head
+        // Helmet/head with helmet texture
+        bindTexture(TEX_HELMET);
+        glColor3f(0.7f, 0.7f, 0.8f); // Metallic helmet tint
         glPushMatrix();
         glTranslatef(0.0f, 0.15f, 0.85f);
         glScalef(0.32f, 0.28f, 0.32f);
-        glColor3f(0.3f, 0.3f, 0.35f); // Metal helmet
         gluSphere(quadric, 1.0f, 8, 6);
         glPopMatrix();
         
-        // Arms in different positions
-        glColor3f(0.25f, 0.22f, 0.18f);
+        // Arms with armor texture
+        bindTexture(TEX_ARMOR);
+        glColor3f(0.8f, 0.8f, 0.85f);
         glPushMatrix();
         glTranslatef(0.65f, 0.08f, 0.4f);
         glRotatef(45.0f + western * 12.0f, 1.0f, 0.0f, 0.0f);
         glScalef(0.16f, 0.14f, 0.9f);
-        gluSphere(quadric, 1.0f, 4, 3);
+        gluSphere(quadric, 1.0f, 6, 4);
         glPopMatrix();
         
         glPushMatrix();
         glTranslatef(-0.65f, 0.06f, 0.1f);
         glRotatef(-35.0f - western * 15.0f, 1.0f, 0.0f, 0.0f);
         glScalef(0.16f, 0.14f, 0.8f);
-        gluSphere(quadric, 1.0f, 4, 3);
+        gluSphere(quadric, 1.0f, 6, 4);
         glPopMatrix();
         
         glPopMatrix();
     }
     
+    glDisable(GL_TEXTURE_2D);
     glEnable(GL_LIGHTING);
 }
 
@@ -3038,6 +3204,8 @@ void BackgroundRenderer::drawBirds() {
 
 // ===== MAIN RENDER FUNCTION =====
 void BackgroundRenderer::render() {
+    // War sound no longer auto-starts - user controls via T key
+    
     glPushMatrix();
     glEnable(GL_DEPTH_TEST);
 
@@ -3148,6 +3316,9 @@ void BackgroundRenderer::render() {
     // 7. Weather overlays (drawn last)
     drawRain();
     drawLightning(); // 2D effect, drawn over everything
+    
+    // 8. Debug visualization (drawn on top)
+    drawCollisionBoxes(); // Show collision boundaries if debug mode enabled
 
     glPopMatrix();
 }
@@ -3630,6 +3801,219 @@ void BackgroundRenderer::drawArrowVolley() {
     }
     
     glDisable(GL_TEXTURE_2D);
+}
+
+// ===== COLLISION DETECTION SYSTEM =====
+void BackgroundRenderer::initializeCollisionBoxes() {
+    collisionBoxes.clear();
+    
+    // Chinese Fortress collision (at -45, 0, -35 with scale 1.5)
+    // Original fortress size: -15 to +15 (X), -8 to +8 (Z), scaled by 1.5
+    collisionBoxes.push_back({-67.5f, -22.5f, -47.0f, -23.0f, 18.0f, "Chinese Fortress"});
+    
+    // Western Castle collision (at 50, 0, -45)
+    // Castle size: -8 to +8 (X), -8 to +8 (Z) plus cylindrical keep
+    collisionBoxes.push_back({42.0f, 58.0f, -53.0f, -37.0f, 20.0f, "Western Castle"});
+    
+    // Major siege equipment collision boxes (moved away from center)
+    // Chinese siege tower (at -25, 0, -15)
+    collisionBoxes.push_back({-31.0f, -19.0f, -21.0f, -9.0f, 24.0f, "Chinese Siege Tower"});
+    
+    // Western siege tower (at 35, 0, -20)
+    collisionBoxes.push_back({31.0f, 39.0f, -24.0f, -16.0f, 18.0f, "Western Siege Tower"});
+    
+    // Trebuchets (far from center)
+    collisionBoxes.push_back({-56.0f, -44.0f, 19.0f, 31.0f, 15.0f, "Chinese Trebuchet"});
+    collisionBoxes.push_back({44.0f, 56.0f, 19.0f, 31.0f, 15.0f, "Western Trebuchet"});
+    
+    // Battering rams (near gates, away from center)
+    collisionBoxes.push_back({-50.0f, -40.0f, -32.0f, -28.0f, 3.0f, "Chinese Gate Ram"});
+    collisionBoxes.push_back({45.0f, 55.0f, -48.0f, -42.0f, 3.0f, "Western Gate Ram"});
+    
+    // Large campfires and weapon racks (moved away from center)
+    collisionBoxes.push_back({17.0f, 23.0f, -12.0f, -2.0f, 2.5f, "Major Campfire"});
+    collisionBoxes.push_back({-53.0f, -47.0f, 23.0f, 27.0f, 3.0f, "Chinese Weapon Rack"});
+    collisionBoxes.push_back({47.0f, 53.0f, 23.0f, 27.0f, 3.0f, "Western Weapon Rack"});
+    
+    // Battlefield debris and obstacles (moved away from starting area)
+    collisionBoxes.push_back({-35.0f, -25.0f, 8.0f, 18.0f, 2.0f, "Battlefield Debris 1"});
+    collisionBoxes.push_back({25.0f, 35.0f, -25.0f, -15.0f, 2.0f, "Battlefield Debris 2"});
+    collisionBoxes.push_back({-45.0f, -35.0f, 5.0f, 12.0f, 1.8f, "Supply Wagon"});
+    collisionBoxes.push_back({30.0f, 37.0f, 8.0f, 15.0f, 2.2f, "Overturned Cart"});
+    collisionBoxes.push_back({-18.0f, -12.0f, -8.0f, -2.0f, 1.0f, "Boulder"});
+    collisionBoxes.push_back({40.0f, 47.0f, -10.0f, -3.0f, 1.5f, "Broken Catapult"});
+    collisionBoxes.push_back({-25.0f, -18.0f, 25.0f, 32.0f, 2.0f, "Abandoned Tent"});
+    
+    printf("Initialized %zu collision boxes\n", collisionBoxes.size());
+    printf("Center area (±15, ±15) kept clear for character movement\n");
+}
+
+bool BackgroundRenderer::checkCollision(float x, float z, float radius) {
+    // First check battlefield boundaries (prevent falling off the edge)
+    const float battlefieldSize = 90.0f; // Battlefield extends roughly from -90 to +90
+    if (x < -battlefieldSize || x > battlefieldSize || z < -80.0f || z > 60.0f) {
+        return true; // Blocked at battlefield edge
+    }
+    
+    // Check collision with all objects
+    return checkCollisionWithCastles(x, z, radius) || checkCollisionWithObjects(x, z, radius);
+}
+
+bool BackgroundRenderer::checkCollisionWithCastles(float x, float z, float radius) {
+    // Check major fortifications
+    for (const auto& box : collisionBoxes) {
+        if (strstr(box.name, "Fortress") || strstr(box.name, "Castle")) {
+            if (circleBoxCollision(x, z, radius, box)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool BackgroundRenderer::checkCollisionWithObjects(float x, float z, float radius) {
+    // Check all other objects (siege equipment, debris, etc.)
+    for (const auto& box : collisionBoxes) {
+        if (!strstr(box.name, "Fortress") && !strstr(box.name, "Castle")) {
+            if (circleBoxCollision(x, z, radius, box)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool BackgroundRenderer::pointInBox(float x, float z, const CollisionBox& box) {
+    return (x >= box.minX && x <= box.maxX && z >= box.minZ && z <= box.maxZ);
+}
+
+bool BackgroundRenderer::circleBoxCollision(float cx, float cz, float radius, const CollisionBox& box) {
+    // Find the closest point on the box to the circle center
+    float closestX = (box.minX > cx) ? box.minX : ((cx > box.maxX) ? box.maxX : cx);
+    float closestZ = (box.minZ > cz) ? box.minZ : ((cz > box.maxZ) ? box.maxZ : cz);
+    
+    // Calculate distance from circle center to closest point
+    float distanceX = cx - closestX;
+    float distanceZ = cz - closestZ;
+    float distanceSquared = distanceX * distanceX + distanceZ * distanceZ;
+    
+    // Collision occurs if distance is less than radius
+    return distanceSquared < (radius * radius);
+}
+
+void BackgroundRenderer::drawCollisionBoxes() {
+    if (!collisionDebugMode) return;
+    
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    // Draw collision boxes as wireframe
+    glColor4f(1.0f, 0.0f, 0.0f, 0.5f); // Semi-transparent red
+    glLineWidth(2.0f);
+    
+    for (const auto& box : collisionBoxes) {
+        // Draw wireframe box
+        glBegin(GL_LINE_LOOP);
+        // Bottom face
+        glVertex3f(box.minX, 0.0f, box.minZ);
+        glVertex3f(box.maxX, 0.0f, box.minZ);
+        glVertex3f(box.maxX, 0.0f, box.maxZ);
+        glVertex3f(box.minX, 0.0f, box.maxZ);
+        glEnd();
+        
+        glBegin(GL_LINE_LOOP);
+        // Top face
+        glVertex3f(box.minX, box.height, box.minZ);
+        glVertex3f(box.maxX, box.height, box.minZ);
+        glVertex3f(box.maxX, box.height, box.maxZ);
+        glVertex3f(box.minX, box.height, box.maxZ);
+        glEnd();
+        
+        // Vertical lines
+        glBegin(GL_LINES);
+        glVertex3f(box.minX, 0.0f, box.minZ); glVertex3f(box.minX, box.height, box.minZ);
+        glVertex3f(box.maxX, 0.0f, box.minZ); glVertex3f(box.maxX, box.height, box.minZ);
+        glVertex3f(box.maxX, 0.0f, box.maxZ); glVertex3f(box.maxX, box.height, box.maxZ);
+        glVertex3f(box.minX, 0.0f, box.maxZ); glVertex3f(box.minX, box.height, box.maxZ);
+        glEnd();
+    }
+    
+    glDisable(GL_BLEND);
+    glEnable(GL_LIGHTING);
+    glLineWidth(1.0f);
+}
+
+// ===== AUDIO SYSTEM =====
+void BackgroundRenderer::playWarSound() {
+    if (!warSoundInitialized) {
+        printf("Warning: Audio system not initialized\n");
+        return;
+    }
+    
+    if (warSoundPlaying) {
+        return; // Already playing
+    }
+    
+    // Use MCI to play MP3 file
+    char command[512];
+    sprintf_s(command, sizeof(command), "open \"texturess/war sound.mp3\" type mpegvideo alias warsound");
+    MCIERROR mciError = mciSendStringA(command, NULL, 0, NULL);
+    
+    if (mciError != 0) {
+        printf("Error opening war sound: %lu\n", mciError);
+        return;
+    }
+    
+    // Set volume (0 to 1000, where 1000 is maximum)
+    int volume = (int)(warSoundVolume * 1000.0f);
+    sprintf_s(command, sizeof(command), "setaudio warsound volume to %d", volume);
+    mciSendStringA(command, NULL, 0, NULL);
+    
+    // Play the sound in a loop
+    sprintf_s(command, sizeof(command), "play warsound repeat");
+    mciError = mciSendStringA(command, NULL, 0, NULL);
+    
+    if (mciError != 0) {
+        printf("Error playing war sound: %lu\n", mciError);
+        mciSendStringA("close warsound", NULL, 0, NULL);
+        return;
+    }
+    
+    warSoundPlaying = true;
+    printf("War sound started playing\n");
+}
+
+void BackgroundRenderer::stopWarSound() {
+    if (!warSoundPlaying) {
+        return; // Not playing
+    }
+    
+    // Stop and close the sound
+    mciSendStringA("stop warsound", NULL, 0, NULL);
+    mciSendStringA("close warsound", NULL, 0, NULL);
+    
+    warSoundPlaying = false;
+    printf("War sound stopped\n");
+}
+
+void BackgroundRenderer::setWarSoundVolume(float volume) {
+    // Clamp volume between 0.0 and 1.0
+    if (volume < 0.0f) volume = 0.0f;
+    if (volume > 1.0f) volume = 1.0f;
+    
+    warSoundVolume = volume;
+    
+    // If currently playing, update the volume
+    if (warSoundPlaying) {
+        char command[256];
+        int mciVolume = (int)(volume * 1000.0f);
+        sprintf_s(command, sizeof(command), "setaudio warsound volume to %d", mciVolume);
+        mciSendStringA(command, NULL, 0, NULL);
+    }
+    
+    printf("War sound volume set to %.1f%%\n", volume * 100.0f);
 }
 
 // Draw enhanced star field for night battles

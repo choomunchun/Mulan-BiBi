@@ -68,6 +68,7 @@ bool keyUp = false, keydown = false, keyLeft = false, keyRight = false, keyShift
 bool keyF = false; // For Fist Animation
 bool keyG = false; // For K-pop Dance Animation
 bool keyX = false; // For Sword Toggle
+bool keySlash = false; // For Slow Arm Bend
 
 // == Weapon controls
 bool gSpearVisible = false;
@@ -122,6 +123,10 @@ float gLeftLowerArmBend = 0.0f;  // Bend angle for left lower arm (positive = be
 float gRightLowerArmBend = 0.0f; // Bend angle for right lower arm (positive = bend up)
 const float MAX_ARM_BEND = 120.0f; // Maximum bend angle in degrees
 
+// --- Slow Arm Bend Controls ---
+float gSlowArmBendSpeed = 30.0f; // Degrees per second for slow arm bending
+bool gSlowArmBendActive = false; // Whether slow arm bending is active
+
 // --- Boxing Stance Animation ---
 bool gInBoxingStance = false;    // Current stance state
 bool gBoxingAnimActive = false;  // Animation in progress
@@ -161,8 +166,8 @@ Vec3  gCharacterPos = { 0.0f, 0.0f, 0.0f };
 float gCharacterYaw = 0.0f;
 float gWalkPhase = 0.0f;
 float gMoveSpeed = 0.0f;
-const float WALK_SPEED = 2.0f;    // Fixed: Reduced for normal walking
-const float RUN_SPEED = 4.0f;     // Fixed: Increased to be faster than walking
+const float WALK_SPEED = 1.8f;    // Enhanced: Slightly slower for more graceful walking
+const float RUN_SPEED = 3.8f;     // Enhanced: Adjusted to maintain good speed ratio
 const float TURN_SPEED = 120.0f;
 
 // --- Fist Animation State ---
@@ -209,6 +214,35 @@ float gSwordAttackShoulderOffset = 0.0f;
 float gSwordAttackArmExtension = 0.0f;
 float gSwordAttackLegStance = 0.0f;
 
+// --- Spear Attack Animation State ---
+bool gSpearAttackAnimating = false;
+float gSpearAttackAnimationTime = 0.0f;
+int gSpearAttackPhase = 0; // 0 = ready, 1 = wind up, 2 = thrust, 3 = follow through
+const float SPEAR_ATTACK_DURATION = 2.0f; // Total attack animation duration
+const float SPEAR_WINDUP_DURATION = 0.6f; // Wind up phase duration
+const float SPEAR_THRUST_DURATION = 0.4f; // Thrust phase duration
+const float SPEAR_FOLLOWTHROUGH_DURATION = 1.0f; // Follow through phase duration
+
+// Spear attack pose offsets
+float gSpearAttackTorsoRotation = 0.0f;
+float gSpearAttackShoulderOffset = 0.0f;
+float gSpearAttackArmExtension = 0.0f;
+float gSpearAttackLegStance = 0.0f;
+
+// --- Shield Block Animation State ---
+bool gShieldBlockAnimating = false;
+float gShieldBlockAnimationTime = 0.0f;
+int gShieldBlockPhase = 0; // 0 = ready, 1 = raise, 2 = hold, 3 = lower
+const float SHIELD_BLOCK_DURATION = 1.5f; // Total block animation duration
+const float SHIELD_RAISE_DURATION = 0.3f; // Raise phase duration
+const float SHIELD_HOLD_DURATION = 0.6f; // Hold phase duration
+const float SHIELD_LOWER_DURATION = 0.6f; // Lower phase duration
+
+// Shield block pose offsets
+float gShieldBlockArmRaise = 0.0f;
+float gShieldBlockTorsoLean = 0.0f;
+float gShieldBlockStance = 0.0f;
+
 // --- Realistic Hand Form States ---
 enum HandForm {
     HAND_OPEN = 0,
@@ -241,11 +275,15 @@ KungFuPose gTigerSequence[4];
 KungFuPose gCurrentPose, gTargetPose;
 
 // =========================================================
-// == 📍 NEW: ANIMATION AMPLITUDE CONTROLS ==
+// == 📍 ENHANCED: NATURAL WALKING ANIMATION CONTROLS ==
 // =========================================================
-const float WALK_ARM_SWING = 25.0f;      // Walking arm swing angle (reduced)
-const float RUN_ARM_SWING = 45.0f;       // Running arm swing angle (reduced)
-const float BODY_BOB_AMOUNT = 0.015f;    // How much the body moves up and down (reduced)
+const float WALK_ARM_SWING = 18.0f;      // Walking arm swing angle (natural)
+const float RUN_ARM_SWING = 35.0f;       // Running arm swing angle (natural)
+const float BODY_BOB_AMOUNT = 0.03f;     // How much the body moves up and down (natural)
+const float HIP_SWAY_AMOUNT = 0.8f;      // Hip sway side-to-side (natural feminine walk)
+const float SHOULDER_COUNTER_SWAY = 0.6f; // Shoulder counter-movement
+const float HEAD_BOB_AMOUNT = 0.01f;     // Subtle head bobbing
+const float STEP_TIMING_OFFSET = 0.1f;   // Offset between different body parts
 
 // --- Data Structures ---
 
@@ -719,6 +757,10 @@ void updateDance(); // Update dance animation
 void updateJumpAnimation(float deltaTime); // Update jump animation
 void startSwordAttack(); // Start sword attack animation
 void updateSwordAttackAnimation(float deltaTime); // Update sword attack animation
+void startSpearAttack(); // Start spear attack animation
+void updateSpearAttackAnimation(float deltaTime); // Update spear attack animation
+void startShieldBlock(); // Start shield block animation
+void updateShieldBlockAnimation(float deltaTime); // Update shield block animation
 Vec3 lerp(const Vec3& a, const Vec3& b, float t); // Linear interpolation
 float smoothStep(float t); // Smooth easing function
 void initializeKungFuSequences(); // Add kung fu animation initialization
@@ -1286,6 +1328,171 @@ void updateSwordAttackAnimation(float deltaTime) {
         gSwordAttackShoulderOffset = 0.0f;
         gSwordAttackArmExtension = 0.0f;
         gSwordAttackLegStance = 0.0f;
+    }
+}
+
+// SPEAR ATTACK ANIMATION FUNCTIONS
+void startSpearAttack() {
+    if (gSpearAttackAnimating) return; // Don't interrupt ongoing animation
+    
+    gSpearAttackAnimating = true;
+    gSpearAttackAnimationTime = 0.0f;
+    gSpearAttackPhase = 0;
+    
+    // Reset attack pose offsets
+    gSpearAttackTorsoRotation = 0.0f;
+    gSpearAttackShoulderOffset = 0.0f;
+    gSpearAttackArmExtension = 0.0f;
+    gSpearAttackLegStance = 0.0f;
+}
+
+void updateSpearAttackAnimation(float deltaTime) {
+    if (!gSpearAttackAnimating) return;
+    
+    gSpearAttackAnimationTime += deltaTime;
+    
+    // Calculate progress through current phase
+    float phaseTime = 0.0f;
+    float phaseDuration = 0.0f;
+    
+    if (gSpearAttackAnimationTime <= SPEAR_WINDUP_DURATION) {
+        // Wind up phase - prepare for powerful thrust
+        gSpearAttackPhase = 1;
+        phaseTime = gSpearAttackAnimationTime;
+        phaseDuration = SPEAR_WINDUP_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = smoothStep(progress); // Smooth easing
+        
+        // Wind up: pull spear back and prepare for thrust like a warrior
+        gSpearAttackTorsoRotation = -20.0f * progress; // Torso twist back
+        gSpearAttackShoulderOffset = -30.0f * progress; // Pull shoulder back
+        gSpearAttackArmExtension = -40.0f * progress; // Pull arm way back
+        gSpearAttackLegStance = 20.0f * progress; // Wider stance for power
+        
+    } else if (gSpearAttackAnimationTime <= SPEAR_WINDUP_DURATION + SPEAR_THRUST_DURATION) {
+        // Thrust phase - explosive forward lunge
+        gSpearAttackPhase = 2;
+        phaseTime = gSpearAttackAnimationTime - SPEAR_WINDUP_DURATION;
+        phaseDuration = SPEAR_THRUST_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = progress * progress * (3.0f - 2.0f * progress); // Explosive thrust motion
+        
+        // Thrust: explosive forward lunge motion
+        float windupTorso = -20.0f;
+        float windupShoulder = -30.0f;
+        float windupArm = -40.0f;
+        float windupLeg = 20.0f;
+        
+        gSpearAttackTorsoRotation = windupTorso + (35.0f * progress); // Powerful torso rotation
+        gSpearAttackShoulderOffset = windupShoulder + (50.0f * progress); // Shoulder drives forward
+        gSpearAttackArmExtension = windupArm + (70.0f * progress); // Full arm extension for thrust
+        gSpearAttackLegStance = windupLeg + (-25.0f * progress); // Weight shifts forward
+        
+    } else if (gSpearAttackAnimationTime <= SPEAR_ATTACK_DURATION) {
+        // Follow through phase - controlled recovery
+        gSpearAttackPhase = 3;
+        phaseTime = gSpearAttackAnimationTime - SPEAR_WINDUP_DURATION - SPEAR_THRUST_DURATION;
+        phaseDuration = SPEAR_FOLLOWTHROUGH_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = smoothStep(progress); // Smooth recovery
+        
+        // Follow through: controlled recovery to ready position
+        float thrustTorso = 15.0f;
+        float thrustShoulder = 20.0f;
+        float thrustArm = 30.0f;
+        float thrustLeg = -5.0f;
+        
+        gSpearAttackTorsoRotation = thrustTorso * (1.0f - progress);
+        gSpearAttackShoulderOffset = thrustShoulder * (1.0f - progress);
+        gSpearAttackArmExtension = thrustArm * (1.0f - progress);
+        gSpearAttackLegStance = thrustLeg * (1.0f - progress);
+        
+    } else {
+        // Animation complete
+        gSpearAttackAnimating = false;
+        gSpearAttackPhase = 0;
+        gSpearAttackTorsoRotation = 0.0f;
+        gSpearAttackShoulderOffset = 0.0f;
+        gSpearAttackArmExtension = 0.0f;
+        gSpearAttackLegStance = 0.0f;
+    }
+}
+
+// SHIELD BLOCK ANIMATION FUNCTIONS
+void startShieldBlock() {
+    if (gShieldBlockAnimating) return; // Don't interrupt ongoing animation
+    
+    gShieldBlockAnimating = true;
+    gShieldBlockAnimationTime = 0.0f;
+    gShieldBlockPhase = 0;
+    
+    // Reset block pose offsets
+    gShieldBlockArmRaise = 0.0f;
+    gShieldBlockTorsoLean = 0.0f;
+    gShieldBlockStance = 0.0f;
+}
+
+void updateShieldBlockAnimation(float deltaTime) {
+    if (!gShieldBlockAnimating) return;
+    
+    gShieldBlockAnimationTime += deltaTime;
+    
+    // Calculate progress through current phase
+    float phaseTime = 0.0f;
+    float phaseDuration = 0.0f;
+    
+    if (gShieldBlockAnimationTime <= SHIELD_RAISE_DURATION) {
+        // Raise phase - quickly raise shield to block
+        gShieldBlockPhase = 1;
+        phaseTime = gShieldBlockAnimationTime;
+        phaseDuration = SHIELD_RAISE_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = progress * progress; // Fast start
+        
+        // Raise: quickly raise shield and brace for impact with bent arm
+        gShieldBlockArmRaise = 80.0f * progress; // Higher raise for better protection
+        gShieldBlockTorsoLean = -8.0f * progress; // Less lean, more upright defensive stance
+        gShieldBlockStance = 35.0f * progress; // Wider stance for stability
+        
+    } else if (gShieldBlockAnimationTime <= SHIELD_RAISE_DURATION + SHIELD_HOLD_DURATION) {
+        // Hold phase - maintain defensive position
+        gShieldBlockPhase = 2;
+        phaseTime = gShieldBlockAnimationTime - SHIELD_RAISE_DURATION;
+        phaseDuration = SHIELD_HOLD_DURATION;
+        
+        // Hold: maintain defensive position with slight tension
+        float tension = sinf(phaseTime * 8.0f) * 1.0f; // Reduced tension for more stable hold
+        gShieldBlockArmRaise = 80.0f + tension; // Maintain high shield position
+        gShieldBlockTorsoLean = -8.0f;
+        gShieldBlockStance = 35.0f;
+        
+    } else if (gShieldBlockAnimationTime <= SHIELD_BLOCK_DURATION) {
+        // Lower phase - return to ready position
+        gShieldBlockPhase = 3;
+        phaseTime = gShieldBlockAnimationTime - SHIELD_RAISE_DURATION - SHIELD_HOLD_DURATION;
+        phaseDuration = SHIELD_LOWER_DURATION;
+        
+        float progress = phaseTime / phaseDuration;
+        progress = smoothStep(progress); // Smooth recovery
+        
+        // Lower: controlled return to ready position
+        gShieldBlockArmRaise = 80.0f * (1.0f - progress);
+        gShieldBlockTorsoLean = -8.0f * (1.0f - progress);
+        gShieldBlockStance = 35.0f * (1.0f - progress);
+        
+    } else {
+        // Animation complete
+        gShieldBlockAnimating = false;
+        gShieldBlockPhase = 0;
+        gShieldBlockArmRaise = 0.0f;
+        gShieldBlockTorsoLean = 0.0f;
+        gShieldBlockStance = 0.0f;
+        // Reset lower arm bend when shield animation ends
+        gLeftLowerArmBend = 0.0f;
     }
 }
 
@@ -1987,13 +2194,15 @@ Vec3 getTransformedWristPosition(const std::vector<ArmJoint>& armJoints, float l
 static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
     if (armJoints.empty()) return;
 
-    // Determine which arm this is and get the appropriate bend angle from boxing stance
+    // Determine which arm this is and get the appropriate bend angle from boxing stance + slow arm bend
     float lowerArmBend = 0.0f;
     if (&armJoints == &g_ArmJoints) {
-        lowerArmBend = gCurrentLeftElbowBend;  // Use boxing stance angle
+        // Combine boxing stance + slow bend (negate only the slow bend for forward direction)
+        lowerArmBend = gCurrentLeftElbowBend + (-gLeftLowerArmBend);
     }
     else if (&armJoints == &g_ArmJoints2) {
-        lowerArmBend = gCurrentRightElbowBend; // Use boxing stance angle
+        // Combine boxing stance + slow bend (negate only the slow bend for forward direction)
+        lowerArmBend = gCurrentRightElbowBend + (-gRightLowerArmBend);
     }
 
     // Calculate transformed lower arm joint positions when bending
@@ -2835,6 +3044,38 @@ static void drawConcreteFinger(const std::vector<HandJoint>& joints, int mcpIdx,
 
 void setHandForm(std::vector<HandJoint>& joints, HandForm form) {
     switch (form) {
+    case HAND_FIST: { // Closed fist - all fingers curled inward
+        // Thumb - bent inward across palm
+        joints[1].position = { 0.3f, -0.2f, 0.3f };
+        joints[2].position = { 0.4f, -0.4f, 0.5f };
+        joints[3].position = { 0.3f, -0.5f, 0.7f };
+        joints[4].position = { 0.2f, -0.6f, 0.8f };
+
+        // Index finger - curled into fist
+        joints[5].position = { 0.2f, 0.1f, 1.0f };
+        joints[6].position = { 0.1f, -0.2f, 1.3f };
+        joints[7].position = { 0.0f, -0.5f, 1.4f };
+        joints[8].position = { -0.1f, -0.7f, 1.3f };
+
+        // Middle finger - curled into fist
+        joints[9].position = { 0.0f, 0.1f, 1.1f };
+        joints[10].position = { -0.1f, -0.2f, 1.4f };
+        joints[11].position = { -0.2f, -0.5f, 1.5f };
+        joints[12].position = { -0.3f, -0.7f, 1.4f };
+
+        // Ring finger - curled into fist
+        joints[13].position = { -0.2f, 0.1f, 1.0f };
+        joints[14].position = { -0.3f, -0.2f, 1.3f };
+        joints[15].position = { -0.4f, -0.5f, 1.4f };
+        joints[16].position = { -0.5f, -0.7f, 1.3f };
+
+        // Pinky - curled into fist
+        joints[17].position = { -0.4f, 0.05f, 0.8f };
+        joints[18].position = { -0.5f, -0.2f, 1.1f };
+        joints[19].position = { -0.6f, -0.4f, 1.2f };
+        joints[20].position = { -0.7f, -0.6f, 1.1f };
+        break;
+    }
     case HAND_GRIP_SPEAR: {
         joints[1].position = { 0.4f, -0.1f, 0.3f };
         joints[2].position = { 0.5f, -0.2f, 0.5f };
@@ -4182,6 +4423,134 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             }
         }
     }
+    else if (gSpearAttackAnimating) {
+        // Use spear attack pose values - spear thrust stance
+        // Create realistic spear thrust with proper arm extension patterns
+        
+        float spearArmPitch = 0.0f;
+        float spearArmExtension = 0.0f;
+        float spearElbowBend = 0.0f;
+        float balanceArmPitch = 0.0f;
+        
+        // Determine which arm holds the spear and calculate realistic thrust movements
+        if (gWeaponInRightHand) {
+            // Right arm spear attack - powerful forward thrust
+            switch (gSpearAttackPhase) {
+                case 1: // Wind up phase - pull spear back for thrust
+                    spearArmPitch = 70.0f + gSpearAttackShoulderOffset * 0.5f;
+                    spearElbowBend = 40.0f + abs(gSpearAttackShoulderOffset) * 0.6f;
+                    balanceArmPitch = 45.0f;
+                    break;
+                case 2: // Thrust phase - explosive forward extension
+                    spearArmPitch = 30.0f + gSpearAttackArmExtension * 0.4f;
+                    spearElbowBend = 10.0f + gSpearAttackArmExtension * 0.2f;
+                    balanceArmPitch = 80.0f;
+                    break;
+                case 3: // Follow through - controlled recovery
+                    spearArmPitch = 50.0f + gSpearAttackArmExtension * 0.3f;
+                    spearElbowBend = 25.0f + gSpearAttackArmExtension * 0.3f;
+                    balanceArmPitch = 60.0f;
+                    break;
+            }
+            
+            leftShoulderPitch = 90.0f + balanceArmPitch + leftArmAngle;
+            rightShoulderPitch = spearArmPitch + rightArmAngle;
+            leftShoulderYaw = -20.0f;
+            rightShoulderYaw = 20.0f + gSpearAttackShoulderOffset * 0.3f;
+            leftShoulderRoll = -40.0f;
+            rightShoulderRoll = 40.0f + gSpearAttackShoulderOffset * 0.5f;
+            leftElbowBend = 20.0f;
+            rightElbowBend = spearElbowBend;
+        } else {
+            // Left arm spear attack - mirror the movements
+            switch (gSpearAttackPhase) {
+                case 1: // Wind up phase - pull spear back for thrust
+                    spearArmPitch = 70.0f + gSpearAttackShoulderOffset * 0.5f;
+                    spearElbowBend = 40.0f + abs(gSpearAttackShoulderOffset) * 0.6f;
+                    balanceArmPitch = 45.0f;
+                    break;
+                case 2: // Thrust phase - explosive forward extension
+                    spearArmPitch = 30.0f + gSpearAttackArmExtension * 0.4f;
+                    spearElbowBend = 10.0f + gSpearAttackArmExtension * 0.2f;
+                    balanceArmPitch = 80.0f;
+                    break;
+                case 3: // Follow through - controlled recovery
+                    spearArmPitch = 50.0f + gSpearAttackArmExtension * 0.3f;
+                    spearElbowBend = 25.0f + gSpearAttackArmExtension * 0.3f;
+                    balanceArmPitch = 60.0f;
+                    break;
+            }
+            
+            leftShoulderPitch = spearArmPitch + leftArmAngle;
+            rightShoulderPitch = 90.0f + balanceArmPitch + rightArmAngle;
+            leftShoulderYaw = -20.0f + gSpearAttackShoulderOffset * 0.3f;
+            rightShoulderYaw = 20.0f;
+            leftShoulderRoll = -40.0f + gSpearAttackShoulderOffset * 0.5f;
+            rightShoulderRoll = 40.0f;
+            leftElbowBend = spearElbowBend;
+            rightElbowBend = 20.0f;
+        }
+        
+        // Make sure spear-holding hand forms a proper grip
+        if (gSpearVisible) {
+            if (gWeaponInRightHand) {
+                setHandForm(g_HandJoints2, HAND_GRIP_SPEAR);
+                setHandForm(g_HandJoints, HAND_OPEN); // Left hand open for balance
+            } else {
+                setHandForm(g_HandJoints, HAND_GRIP_SPEAR);
+                setHandForm(g_HandJoints2, HAND_OPEN); // Right hand open for balance
+            }
+        }
+    }
+    else if (gShieldBlockAnimating) {
+        // Use shield block pose values - tactical defensive stance
+        // Create realistic shield blocking with arm bent up to protect body
+        
+        float shieldArmPitch = 0.0f;
+        float shieldElbowBend = 0.0f;
+        float balanceArmPitch = 0.0f;
+        
+        // Shield is held in left arm with bent elbow for body protection
+        switch (gShieldBlockPhase) {
+            case 1: // Raise phase - quickly raise shield with bent arm
+                shieldArmPitch = 45.0f + gShieldBlockArmRaise * 0.5f; // Less shoulder raise, more elbow bend
+                shieldElbowBend = 120.0f + gShieldBlockArmRaise * 0.8f; // High elbow bend for protection
+                balanceArmPitch = 30.0f + gShieldBlockArmRaise * 0.2f;
+                break;
+            case 2: // Hold phase - maintain defensive position with shield protecting torso
+                shieldArmPitch = 45.0f + gShieldBlockArmRaise * 0.5f;
+                shieldElbowBend = 120.0f + gShieldBlockArmRaise * 0.8f; // Keep high elbow bend
+                balanceArmPitch = 30.0f + gShieldBlockArmRaise * 0.2f;
+                break;
+            case 3: // Lower phase - controlled return
+                shieldArmPitch = 45.0f + gShieldBlockArmRaise * 0.5f;
+                shieldElbowBend = 120.0f + gShieldBlockArmRaise * 0.8f;
+                balanceArmPitch = 30.0f + gShieldBlockArmRaise * 0.2f;
+                break;
+        }
+        
+        // Shield held in left arm (tactical defensive position with minimal upper arm movement)
+        leftShoulderPitch = 30.0f + leftArmAngle; // Reduced shoulder movement - keep upper arm stable
+        rightShoulderPitch = 90.0f + balanceArmPitch + rightArmAngle;
+        leftShoulderYaw = 30.0f; // Positive value to rotate toward right side
+        rightShoulderYaw = 10.0f; // Ready position
+        leftShoulderRoll = -75.0f; // Reduced roll - keep upper arm more stable
+        rightShoulderRoll = 25.0f;
+        leftElbowBend = shieldElbowBend; // High elbow bend for tactical position
+        rightElbowBend = 10.0f;
+        
+        // Apply enhanced lower arm bending for better body defense positioning
+        // Bend the left lower arm (forearm) up significantly more while keeping upper arm stable
+        if (gShieldBlockPhase >= 1) {
+            gLeftLowerArmBend = -80.0f * (gShieldBlockArmRaise / 80.0f); // Increased to -80° for more pronounced forearm bend
+        }
+        
+        // Shield blocking hand form
+        if (gShieldVisible) {
+            setHandForm(g_HandJoints, HAND_FIST); // Left hand makes fist when holding shield
+            setHandForm(g_HandJoints2, HAND_OPEN); // Right hand ready for action
+        }
+    }
     else if (gBoxingAnimActive || gInBoxingStance) {
         // Use boxing stance pose values
         leftShoulderPitch = gCurrentLeftShoulderPitch;
@@ -4229,8 +4598,9 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         bool needRightSwordGrip = gSwordVisible && gWeaponInRightHand;
         bool needLeftSpearGrip = gSpearVisible && !gWeaponInRightHand;
         bool needRightSpearGrip = gSpearVisible && gWeaponInRightHand;
+        bool needLeftShieldGrip = gShieldVisible; // Left hand holds shield
 
-        if (!gFistAnimationActive && !gIsFist && !needLeftSwordGrip && !needRightSwordGrip && !needLeftSpearGrip && !needRightSpearGrip) {
+        if (!gFistAnimationActive && !gIsFist && !needLeftSwordGrip && !needRightSwordGrip && !needLeftSpearGrip && !needRightSpearGrip && !needLeftShieldGrip) {
             if (g_OriginalHandJoints.size() == g_HandJoints.size()) g_HandJoints = g_OriginalHandJoints;
             if (g_OriginalHandJoints2.size() == g_HandJoints2.size()) g_HandJoints2 = g_OriginalHandJoints2;
         }
@@ -4239,6 +4609,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         if (needRightSwordGrip) setHandForm(g_HandJoints2, HAND_GRIP_SWORD);
         if (needLeftSpearGrip) setHandForm(g_HandJoints, HAND_GRIP_SPEAR);
         if (needRightSpearGrip) setHandForm(g_HandJoints2, HAND_GRIP_SPEAR);
+        if (needLeftShieldGrip) setHandForm(g_HandJoints, HAND_FIST); // Shield requires fist grip
     }
 
     // Set material properties for concrete or skin
@@ -4294,9 +4665,10 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             // Position relative to the elbow to attach to forearm
             Vec3 elbowPos = g_ArmJoints[3].position;
             glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
-            glTranslatef(-0.2f, 0.0f, 0.7f); // change position of shield
+            glTranslatef(-0.1f, -0.2f, 0.5f); // Adjusted position to reveal hand better
             glRotatef(-80.0f, 0, 1, 0);
-            glRotatef(10.0f, 1, 0, 0);
+            glRotatef(25.0f, 1, 0, 0); // Increased upward tilt to reveal hand
+            glRotatef(-15.0f, 0, 0, 1); // Slight roll to angle shield away from hand
             glScalef(0.4f, 0.4f, 0.4f);
             drawShield();
             glPopMatrix();
@@ -4339,7 +4711,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glTranslatef(-elbowPos.x * ARM_SCALE, -elbowPos.y * ARM_SCALE, -elbowPos.z * ARM_SCALE);
 
         // Get transformed wrist position that accounts for lower arm bending
-        Vec3 leftWristPos = getTransformedWristPosition(g_ArmJoints, gLeftLowerArmBend);
+        Vec3 leftWristPos = getTransformedWristPosition(g_ArmJoints, gCurrentLeftElbowBend + (-gLeftLowerArmBend));
         glTranslatef(leftWristPos.x * ARM_SCALE, leftWristPos.y * ARM_SCALE, leftWristPos.z * ARM_SCALE);
         glRotatef(leftWristPitch, 1.0f, 0.0f, 0.0f);  // Use animated wrist pitch
         glRotatef(leftWristYaw, 0.0f, 1.0f, 0.0f);    // Use animated wrist yaw
@@ -4438,7 +4810,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glTranslatef(-rightElbowPos.x * ARM_SCALE, -rightElbowPos.y * ARM_SCALE, -rightElbowPos.z * ARM_SCALE);
 
         // Get transformed wrist position that accounts for lower arm bending
-        Vec3 rightWristPos = getTransformedWristPosition(g_ArmJoints2, gRightLowerArmBend);
+        Vec3 rightWristPos = getTransformedWristPosition(g_ArmJoints2, gCurrentRightElbowBend + (-gRightLowerArmBend));
         glTranslatef(rightWristPos.x * ARM_SCALE, rightWristPos.y * ARM_SCALE, rightWristPos.z * ARM_SCALE);
         glRotatef(rightWristPitch, 1.0f, 0.0f, 0.0f);  // Use animated wrist pitch
         glRotatef(rightWristYaw, 0.0f, 1.0f, 0.0f);    // Use animated wrist yaw  
@@ -4541,6 +4913,14 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
     glTranslatef(0.0f, 6.0f - 0.05f, 0.0f);
     glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
 
+    // Enhanced: Apply shoulder sway for natural walking
+    float shoulderSway = 0.0f;
+    if (fabsf(gMoveSpeed) > 0.1f) {
+        float phase = gWalkPhase;
+        shoulderSway = -sinf(phase * 0.5f + STEP_TIMING_OFFSET) * SHOULDER_COUNTER_SWAY;
+    }
+    glRotatef(shoulderSway, 0, 0, 1); // Apply shoulder sway rotation
+
     // [KEEP] Torso orientation (animated)
     glRotatef(g_pose.torsoYaw, 0, 1, 0);
     glRotatef(g_pose.torsoPitch, 1, 0, 0);
@@ -4549,6 +4929,14 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
     // Apply sword attack animation torso rotation
     if (gSwordAttackAnimating) {
         glRotatef(gSwordAttackTorsoRotation, 0, 1, 0); // Rotate around Y-axis for sword swing
+    }
+    // Apply spear attack animation torso rotation  
+    if (gSpearAttackAnimating) {
+        glRotatef(gSpearAttackTorsoRotation, 0, 1, 0); // Rotate around Y-axis for spear thrust
+    }
+    // Apply shield block animation torso lean
+    if (gShieldBlockAnimating) {
+        glRotatef(gShieldBlockTorsoLean, 1, 0, 0); // Lean back slightly for shield defense
     }
 
     // [KEEP] Arms
@@ -4562,8 +4950,15 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
     // ------------------------------
     glPushMatrix();
     {
+        // Enhanced: Apply head bobbing for natural walking
+        float headBob = 0.0f;
+        if (fabsf(gMoveSpeed) > 0.1f) {
+            float bobPhase = gWalkPhase * 2.0f;
+            headBob = sinf(bobPhase) * HEAD_BOB_AMOUNT;
+        }
+        
         // Move to the neck/head pivot (center of head). This matches your HEAD_CENTER_Y.
-        glTranslatef(0.0f, HEAD_CENTER_Y, 0.0f);
+        glTranslatef(0.0f, HEAD_CENTER_Y + headBob, 0.0f);
 
         // Apply head orientation (relative to torso)
         glRotatef(g_pose.headYaw, 0, 1, 0);
@@ -4654,32 +5049,64 @@ void renderScene() {
 
     float bodyBob = 0.0f;
     float leftArmSwing = 0.0f, rightArmSwing = 0.0f;
+    float hipSway = 0.0f;
+    float shoulderSway = 0.0f;
+    float headBob = 0.0f;
+    float torsoRotation = 0.0f;
 
     if (fabsf(gMoveSpeed) > 0.1f) {
         float animSpeed = keyShift ? 1.8f : 1.0f;
         float phase = gWalkPhase * animSpeed;
         float sinPhase = sinf(phase);
-        bodyBob = (cosf(phase * 2.0f) * -0.5f + 0.5f) * -BODY_BOB_AMOUNT;
+        float cosPhase = cosf(phase);
+        
+        // Enhanced body bobbing with more natural curve
+        float bobPhase = phase * 2.0f;
+        bodyBob = (cosf(bobPhase) * -0.5f + 0.5f) * -BODY_BOB_AMOUNT;
+        
+        // Natural arm swing with slight delay and easing
+        float armPhase = phase + STEP_TIMING_OFFSET;
         float armSwingAmplitude = keyShift ? RUN_ARM_SWING : WALK_ARM_SWING;
-        rightArmSwing = sinPhase * armSwingAmplitude;
-        leftArmSwing = -sinPhase * armSwingAmplitude;
+        rightArmSwing = sinf(armPhase) * armSwingAmplitude * 0.8f;
+        leftArmSwing = -sinf(armPhase) * armSwingAmplitude * 0.8f;
+        
+        // Hip sway (side-to-side movement)
+        hipSway = sinf(phase * 0.5f) * HIP_SWAY_AMOUNT;
+        
+        // Shoulder counter-sway (opposite to hips for natural walking)
+        shoulderSway = -sinf(phase * 0.5f + STEP_TIMING_OFFSET) * SHOULDER_COUNTER_SWAY;
+        
+        // Subtle head bobbing
+        headBob = sinf(bobPhase) * HEAD_BOB_AMOUNT;
+        
+        // Subtle torso rotation (realistic walking twist)
+        torsoRotation = sinf(phase * 0.7f) * 2.0f;
     }
 
     glPushMatrix();
-    glTranslatef(gCharacterPos.x, gCharacterPos.y + bodyBob + gJumpVerticalOffset, gCharacterPos.z);
-    glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
+    // Enhanced: Apply hip sway and body rotation for natural walking
+    glTranslatef(gCharacterPos.x + hipSway, gCharacterPos.y + bodyBob + gJumpVerticalOffset, gCharacterPos.z);
+    glRotatef(gCharacterYaw + torsoRotation, 0.0f, 1.0f, 0.0f);
 
     float current_speed = gRunningAnim ? gRunSpeed : gWalkSpeed;
-    float max_hip_angle = gRunningAnim ? 25.0f : 15.0f;    // Fixed: Increased for better visibility
-    float max_knee_angle = gRunningAnim ? 60.0f : 35.0f;   // Fixed: Increased for more natural bend
+    float max_hip_angle = gRunningAnim ? 28.0f : 18.0f;    // Enhanced: More natural range
+    float max_knee_angle = gRunningAnim ? 65.0f : 42.0f;   // Enhanced: Better knee bend
 
+    // Enhanced leg animation with more natural timing and easing
     float left_leg_phase = gAnimTime * current_speed;
-    float hip_angle_L = gIsMoving ? (max_hip_angle * sinf(left_leg_phase)) : 0.0f;
-    float knee_angle_L = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(left_leg_phase))) : 0.0f;
-
     float right_leg_phase = gAnimTime * current_speed + PI;
-    float hip_angle_R = gIsMoving ? (max_hip_angle * sinf(right_leg_phase)) : 0.0f;
-    float knee_angle_R = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(right_leg_phase))) : 0.0f;
+    
+    // Natural hip movement with easing
+    float leftHipSin = sinf(left_leg_phase);
+    float rightHipSin = sinf(right_leg_phase);
+    float hip_angle_L = gIsMoving ? (max_hip_angle * leftHipSin * 0.9f) : 0.0f;
+    float hip_angle_R = gIsMoving ? (max_hip_angle * rightHipSin * 0.9f) : 0.0f;
+    
+    // Natural knee movement with better follow-through
+    float leftKneePhase = left_leg_phase + 0.3f; // Slight delay for natural movement
+    float rightKneePhase = right_leg_phase + 0.3f;
+    float knee_angle_L = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(leftKneePhase) * 0.8f)) : 0.0f;
+    float knee_angle_R = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(rightKneePhase) * 0.8f)) : 0.0f;
     
     // Apply sword attack stance modifications
     if (gSwordAttackAnimating) {
@@ -4688,6 +5115,30 @@ void renderScene() {
         hip_angle_R -= gSwordAttackLegStance * 0.3f; // Front leg forward
         knee_angle_L += abs(gSwordAttackLegStance) * 0.2f; // Slight knee bend for stability
         knee_angle_R += abs(gSwordAttackLegStance) * 0.3f; // More bend in front leg
+    }
+    
+    // Apply spear attack stance modifications
+    if (gSpearAttackAnimating) {
+        // Spear thrust stance: forward lunge position
+        hip_angle_L += gSpearAttackLegStance * 0.4f; // Back leg for stability
+        hip_angle_R -= gSpearAttackLegStance * 0.6f; // Front leg extends for thrust
+        knee_angle_L += abs(gSpearAttackLegStance) * 0.3f; // Bend for power
+        knee_angle_R += abs(gSpearAttackLegStance) * 0.4f; // Forward leg bent for lunge
+    }
+    
+    // Apply shield block stance modifications
+    if (gShieldBlockAnimating) {
+        // Shield tactical defensive stance: stable, braced position
+        hip_angle_L += gShieldBlockStance * 0.2f; // Slightly back for balance
+        hip_angle_R += gShieldBlockStance * 0.3f; // Forward for aggressive defense
+        knee_angle_L += abs(gShieldBlockStance) * 0.3f; // Bent for stability
+        knee_angle_R += abs(gShieldBlockStance) * 0.5f; // More bend in forward leg
+        
+        // Apply torso lean for shield defense to show hand better
+        if (gShieldBlockPhase >= 1) {
+            // Lean torso slightly away from shield to reveal hand
+            glRotatef(gShieldBlockTorsoLean * 0.5f, 0, 0, 1); // Slight side lean
+        }
     }
 
     const float kneeY = 4.5f, kneeZ = 0.2f;
@@ -4877,6 +5328,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     printf("\nMESH QUALITY:\n");
     printf("Torso segments: %d, Head segments: %d, Head layers: %d\n", TORSO_SEGMENTS, HEAD_SEGMENTS, HEAD_LAYERS);
     printf("(Edit #defines in code to change mesh quality)\n");
+    printf("\nAUDIO CONTROLS:\n");
+    printf("T - Toggle war sound on/off\n");
+    printf("+/- - Increase/decrease war sound volume\n");
+    printf("K - Toggle background visibility\n");
+    printf("\nCOLLISION SYSTEM:\n");
+    printf("R - Toggle collision debug visualization\n");
+    printf("Character now has realistic collision with castles and objects\n");
     printf("===============================\n");
 
     QueryPerformanceFrequency(&gFreq); QueryPerformanceCounter(&gPrev);
@@ -4909,10 +5367,34 @@ void updateCharacter(float dt) {
     if (keyRight) { gCharacterYaw -= TURN_SPEED * dt; }
     if (fabsf(gMoveSpeed) > 0.01f) {
         float angleRad = gCharacterYaw * PI / 180.0f;
-        gCharacterPos.x -= sin(angleRad) * gMoveSpeed * dt;
-        gCharacterPos.z -= cos(angleRad) * gMoveSpeed * dt;
-        float phaseSpeed = keyShift ? 8.0f : 6.0f;     // Fixed: More reasonable phase speeds
-        gWalkPhase += gMoveSpeed * dt * phaseSpeed / 2.0f;  // Fixed: Simplified calculation
+        
+        // Calculate potential new position
+        float newX = gCharacterPos.x - sin(angleRad) * gMoveSpeed * dt;
+        float newZ = gCharacterPos.z - cos(angleRad) * gMoveSpeed * dt;
+        
+        // Character collision radius (adjust based on character size)
+        float characterRadius = 1.2f;
+        
+        // Check collision before moving
+        if (!BackgroundRenderer::checkCollision(newX, newZ, characterRadius)) {
+            // Safe to move - update position
+            gCharacterPos.x = newX;
+            gCharacterPos.z = newZ;
+        } else {
+            // Collision detected - try sliding along walls
+            // Try moving only in X direction
+            if (!BackgroundRenderer::checkCollision(newX, gCharacterPos.z, characterRadius)) {
+                gCharacterPos.x = newX;
+            }
+            // Try moving only in Z direction
+            else if (!BackgroundRenderer::checkCollision(gCharacterPos.x, newZ, characterRadius)) {
+                gCharacterPos.z = newZ;
+            }
+            // If both fail, character is blocked completely
+        }
+        
+        float phaseSpeed = keyShift ? 7.0f : 4.5f;     // Enhanced: More natural walking rhythm
+        gWalkPhase += gMoveSpeed * dt * phaseSpeed / 2.0f;  // Enhanced: Smoother phase progression
     }
 
     // Update animations
@@ -4922,6 +5404,39 @@ void updateCharacter(float dt) {
     updateJumpAnimation(dt);    // Add jump animation updates
     updateDance();              // Add K-pop dance animation updates
     updateSwordAttackAnimation(dt); // Add sword attack animation updates
+    updateSpearAttackAnimation(dt); // Add spear attack animation updates
+    updateShieldBlockAnimation(dt); // Add shield block animation updates
+
+    // Update slow arm bending
+    if (keySlash) {
+        gSlowArmBendActive = true;
+        // Slowly bend both arms up bit by bit
+        gLeftLowerArmBend += gSlowArmBendSpeed * dt;
+        gRightLowerArmBend += gSlowArmBendSpeed * dt;
+        
+        // Clamp to maximum arm bend angle
+        if (gLeftLowerArmBend > MAX_ARM_BEND) {
+            gLeftLowerArmBend = MAX_ARM_BEND;
+        }
+        if (gRightLowerArmBend > MAX_ARM_BEND) {
+            gRightLowerArmBend = MAX_ARM_BEND;
+        }
+    } else {
+        gSlowArmBendActive = false;
+        // Slowly return arms to normal position when key is released
+        if (gLeftLowerArmBend > 0.0f) {
+            gLeftLowerArmBend -= gSlowArmBendSpeed * dt * 1.5f; // Return slightly faster
+            if (gLeftLowerArmBend < 0.0f) {
+                gLeftLowerArmBend = 0.0f;
+            }
+        }
+        if (gRightLowerArmBend > 0.0f) {
+            gRightLowerArmBend -= gSlowArmBendSpeed * dt * 1.5f; // Return slightly faster
+            if (gRightLowerArmBend < 0.0f) {
+                gRightLowerArmBend = 0.0f;
+            }
+        }
+    }
 
     // Update background animation
     BackgroundRenderer::update(dt);
@@ -4937,7 +5452,6 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     case WM_MOUSEWHEEL: { short delta = GET_WHEEL_DELTA_WPARAM(wParam); gDist *= (1.0f - (delta / 120.0f) * 0.1f); if (gDist < 2.0f)gDist = 2.0f; if (gDist > 100.0f)gDist = 100.0f; } return 0;
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)PostQuitMessage(0);
-        else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; gTarget = { 0.0f,3.5f,0.0f }; gCharacterPos = { 0,0,0 }; gCharacterYaw = 0; }
         else if (wParam == '1' || wParam == VK_NUMPAD1) {   // Wireframe
             setRenderMode(RM_WIREFRAME);
             InvalidateRect(hWnd, NULL, FALSE);
@@ -4955,10 +5469,36 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'G') { startDance(); } // K-pop dance animation
         else if (wParam == 'B') { toggleBoxingStance(); } // Toggle boxing stance (guard position)
         else if (wParam == 'H') { gShowJointVisuals = !gShowJointVisuals; } // Toggle joint visualization
-        else if (wParam == 'X') { gSwordVisible = !gSwordVisible; } // Toggle sword visibility
+        else if (wParam == 'X') { 
+            if (gSwordVisible) {
+                gSwordVisible = false; // Hide sword
+            } else {
+                gSwordVisible = true; // Show sword
+                if (gSpearVisible) gSpearVisible = false; // Hide spear if it's visible
+            }
+        } // Toggle sword visibility (mutual exclusive with spear)
         else if (wParam == 'Z') { startSwordAttack(); } // Warrior sword attack animation
-        else if (wParam == 'V') { gSpearVisible = !gSpearVisible; }
-        else if (wParam == 'C') { gShieldVisible = !gShieldVisible; }
+        else if (wParam == 'V') { 
+            if (gSpearVisible) {
+                gSpearVisible = false; // Hide spear
+            } else {
+                gSpearVisible = true; // Show spear
+                if (gSwordVisible) gSwordVisible = false; // Hide sword if it's visible
+            }
+        } // Toggle spear visibility (mutual exclusive with sword)
+        else if (wParam == 'J') { 
+            if (gSpearVisible) startSpearAttack(); // Spear thrust attack animation
+        } // Spear thrust attack (only when spear is visible)
+        else if (wParam == 'C') { 
+            if (gShieldVisible) {
+                gShieldVisible = false; // Hide shield
+            } else {
+                gShieldVisible = true; // Show shield
+            }
+        } // Toggle shield visibility
+        else if (wParam == 'I') { 
+            if (gShieldVisible) startShieldBlock(); // Shield block animation
+        } // Shield block animation (only when shield is visible)
         else if (wParam == 'M') { gArmorVisible = !gArmorVisible; gConcreteHands = gArmorVisible;}
         // Helmet dome rotation controls
         //else if (wParam == '1') { g_helmetDomeRotationX += 5.0f; }
@@ -4968,6 +5508,69 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         //else if (wParam == '5') { g_helmetDomeRotationZ += 5.0f; }
         //else if (wParam == '6') { g_helmetDomeRotationZ -= 5.0f; }
         else if (wParam == 'K') { gBackgroundVisible = !gBackgroundVisible; } // Toggle background visibility
+        else if (wParam == 'T') { // Toggle war sound
+            if (BackgroundRenderer::warSoundPlaying) {
+                BackgroundRenderer::stopWarSound();
+            } else {
+                BackgroundRenderer::playWarSound();
+            }
+        }
+        else if (wParam == VK_OEM_PLUS) { // + key to increase volume
+            BackgroundRenderer::setWarSoundVolume(BackgroundRenderer::warSoundVolume + 0.1f);
+        }
+        else if (wParam == VK_OEM_MINUS) { // - key to decrease volume
+            BackgroundRenderer::setWarSoundVolume(BackgroundRenderer::warSoundVolume - 0.1f);
+        }
+        else if (wParam == 'R') { // R key to reset everything
+            // Reset camera
+            gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; 
+            gTarget = { 0.0f, 3.5f, 0.0f }; 
+            
+            // Reset character position and orientation
+            gCharacterPos = { 0, 0, 0 }; 
+            gCharacterYaw = 0;
+            gMoveSpeed = 0.0f;
+            gWalkPhase = 0.0f;
+            
+            // Reset animations
+            gAnimTime = 0.0f;
+            gIsMoving = false;
+            gRunningAnim = false;
+            gJumpVerticalOffset = 0.0f;
+            
+            // Reset all special animations
+            gKungFuAnimating = false;
+            gSwordAttackAnimating = false;
+            gSpearAttackAnimating = false;
+            gShieldBlockAnimating = false;
+            gBoxingAnimActive = false;
+            gInBoxingStance = false;
+            gIsDancing = false;
+            gIsJumping = false;
+            gFistAnimationActive = false;
+            
+            // Reset weapon/armor visibility
+            gSwordVisible = false;
+            gSpearVisible = false;
+            gShieldVisible = false;
+            gArmorVisible = false;
+            
+            // Reset arm bending (including shield defense arm bend)
+            gLeftLowerArmBend = 0.0f;
+            gRightLowerArmBend = 0.0f;
+            gSlowArmBendActive = false;
+            
+            // Stop war sound if playing
+            if (BackgroundRenderer::warSoundPlaying) {
+                BackgroundRenderer::stopWarSound();
+            }
+            
+            // Reset background settings
+            gBackgroundVisible = true;
+            BackgroundRenderer::collisionDebugMode = false;
+            
+            printf("=== EVERYTHING RESET ===");
+        }
         // Projection and Viewport Controls
         else if (wParam == 'O') { gProjMode = PROJ_ORTHOGRAPHIC; } // Orthographic projection
         else if (wParam == 'P') { gProjMode = PROJ_PERSPECTIVE; } // Perspective projection
@@ -4980,6 +5583,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         else if (wParam == 'G') keyG = true;
+        else if (wParam == VK_OEM_2) keySlash = true; // '/' key for slow arm bend
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
         else if (wParam == VK_LEFT) keyLeft = true; else if (wParam == VK_RIGHT) keyRight = true;
         else if (wParam == VK_SHIFT) keyShift = true;
@@ -4988,6 +5592,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         if (wParam == 'W') keyW = false; else if (wParam == 'S') keyS = false;
         else if (wParam == 'A') keyA = false; else if (wParam == 'D') keyD = false;
         else if (wParam == 'G') keyG = false;
+        else if (wParam == VK_OEM_2) keySlash = false; // '/' key
         else if (wParam == VK_UP) keyUp = false; else if (wParam == VK_DOWN) keydown = false;
         else if (wParam == VK_LEFT) keyLeft = false; else if (wParam == VK_RIGHT) keyRight = false;
         else if (wParam == VK_SHIFT) keyShift = false;

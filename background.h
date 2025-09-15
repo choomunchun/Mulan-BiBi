@@ -3,6 +3,8 @@
 #include <Windows.h>
 #include <gl/GL.h>
 #include <gl/GLU.h>
+#pragma comment(lib, "winmm.lib")
+#include <mmsystem.h>
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <vector>
@@ -58,6 +60,24 @@ public:
     static void setWeather(int weather);
     static int getWeather() { return currentWeather; }
 
+    // Audio control
+    static void playWarSound();
+    static void stopWarSound();
+    static void setWarSoundVolume(float volume); // 0.0f to 1.0f
+    
+    // Audio state access
+    static bool warSoundPlaying;
+    static float warSoundVolume;
+    
+    // Collision debug access
+    static bool collisionDebugMode;
+    
+    // Collision detection system
+    static bool checkCollision(float x, float z, float radius = 1.0f);
+    static bool checkCollisionWithCastles(float x, float z, float radius);
+    static bool checkCollisionWithObjects(float x, float z, float radius);
+    static void drawCollisionBoxes(); // Debug visualization
+
 private:
     // Static variables for state
     static GLUquadric* quadric;
@@ -69,6 +89,17 @@ private:
     static float lightningTimer;
     static float lightningBrightness;
     
+    // Audio-related variables
+    static bool warSoundInitialized;
+    
+    // Collision detection data
+    struct CollisionBox {
+        float minX, maxX, minZ, maxZ;
+        float height;
+        const char* name; // For debugging
+    };
+    static std::vector<CollisionBox> collisionBoxes;
+    
     // Siege effect variables
     static float siegeTime;
     static float dayNightTime; // Time for day/night cycle
@@ -77,7 +108,7 @@ private:
     static std::vector<Ember> embers;
     
     // Texture system
-    static GLuint textures[32]; // Array to hold texture IDs
+    static GLuint textures[50]; // Array to hold texture IDs
     static bool texturesLoaded;
     
     // Texture loading and management
@@ -119,7 +150,13 @@ private:
         TEX_STARS = 28,
         TEX_TREES = 29,
         TEX_HORSE_CAVALRY = 30,
-        TEX_ARCHER_FORMATIONS = 31
+        TEX_ARCHER_FORMATIONS = 31,
+        TEX_WOOD = 32,
+        TEX_BLOOD_STAINS = 33,
+        TEX_ARMOR = 34,
+        TEX_SKIN = 35,
+        TEX_HELMET = 36,
+        TEX_SABATONS = 37
     };
 
     // Siege effects update and spawn
@@ -128,6 +165,11 @@ private:
 
     // Helper to draw a single tattered banner
     static void drawTatteredBanner(float x, float y, float z, float height, float width, float r, float g, float b);
+    
+    // Collision detection helpers
+    static void initializeCollisionBoxes();
+    static bool pointInBox(float x, float z, const CollisionBox& box);
+    static bool circleBoxCollision(float cx, float cz, float radius, const CollisionBox& box);
 
     // --- Drawing Sub-routines ---
 

@@ -15,12 +15,18 @@
 #include "shield.h"
 #include "armor.h"
 #include "background.h"
-#include "texture.h"
-
+#include "sword.h"
 
 #pragma comment(lib, "OpenGL32.lib")
 #pragma comment(lib, "Glu32.lib")
 
+// Define min/max functions if not available
+#ifndef min
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
+#ifndef max
+#define max(a,b) ((a)>(b)?(a):(b))
+#endif
 
 // Define GL_BGR if not available
 #ifndef GL_BGR
@@ -42,10 +48,7 @@ int   gWidth = 800;
 int   gHeight = 600;
 
 bool  gRunning = true;
-// --- Rendering mode ---
-enum RenderMode { RM_WIREFRAME, RM_SOLID, RM_TEXTURED };
-RenderMode gRenderMode = RM_TEXTURED;   // default
-
+bool  gShowWireframe = false;
 
 bool  gLMBDown = false;
 POINT gLastMouse = { 0, 0 };
@@ -68,12 +71,33 @@ bool keyF = false; // For Fist Animation
 bool keyG = false; // For K-pop Dance Animation
 bool keyX = false; // For Sword Toggle
 bool keyZ = false; // For Sword Hand Switch
+bool keySlash = false; // For Sword Attack Animation
 
 // == Weapon controls
 bool gSpearVisible = false;
 bool gShieldVisible = false;
 bool gWeaponInRightHand = true; // For both spear and sword
 bool gArmorVisible = false;
+
+// --- Sword Attack Animation State ---
+bool gSwordAttackActive = false;    // Is sword attack currently playing
+float gSwordAttackTime = 0.0f;      // Current attack animation time
+int gSwordAttackType = 0;           // 0 = slash, 1 = thrust, 2 = combo
+int gSwordAttackPhase = 0;          // Current phase of the attack (0=windup, 1=strike, 2=recover)
+float gSwordAttackRotationX = 0.0f; // Current sword rotation X
+float gSwordAttackRotationY = 0.0f; // Current sword rotation Y 
+float gSwordAttackRotationZ = 0.0f; // Current sword rotation Z
+const float SWORD_ATTACK_SPEED = 3.0f;     // Attack animation speed multiplier
+const float SWORD_ATTACK_DURATION = 1.2f;  // Total attack duration in seconds
+
+// --- Enhanced Warrior Pose State ---
+float gCurrentWarriorHeadYaw = 0.0f;        // Current head rotation for warrior poses
+float gCurrentWarriorHeadPitch = 0.0f;      // Current head pitch for tracking
+float gCurrentWarriorHeadRoll = 0.0f;       // Current head roll
+float gCurrentWarriorLegLeft = 0.0f;        // Current left leg angle for stance
+float gCurrentWarriorLegRight = 0.0f;       // Current right leg angle for stance
+float gCurrentWarriorYOffset = 0.0f;        // Current Y position offset
+float gCurrentWarriorStanceWidth = 1.0f;    // Current stance width multiplier
 float g_shoulderArmorScale = 1.0f; // NEW: Scale for shoulder armor
 float g_helmetSideOffsetX = 0.0f;  // Offset for helmet side covers
 float g_helmetSideOffsetY = 0.0f;
@@ -185,7 +209,7 @@ const float JUMP_DURATION = 0.8f;   // Keep original jump duration for compatibi
 
 // --- Kung Fu Pattern State ---
 int gKungFuPattern = 0; // 0 = normal, 1 = crane, 2 = dragon, 3 = tiger
-bool gConcreteHands = false;
+bool gConcreteHands = false; // Toggle between skin and concrete hands
 
 // --- Kung Fu Animation State ---
 bool gKungFuAnimating = false;
@@ -225,6 +249,31 @@ KungFuPose gDragonSequence[4];
 KungFuPose gTigerSequence[4];
 KungFuPose gCurrentPose, gTargetPose;
 
+// --- Sword Attack Animation Structures ---
+struct SwordAttackPose {
+    float leftShoulderPitch, rightShoulderPitch;
+    float leftShoulderYaw, rightShoulderYaw;
+    float leftShoulderRoll, rightShoulderRoll;
+    float leftArmAngle, rightArmAngle;
+    float leftElbowBend, rightElbowBend;
+    float torsoYaw, torsoPitch, torsoRoll;
+    float swordRotationX, swordRotationY, swordRotationZ;
+    HandForm swordHandForm;
+    
+    // Enhanced warrior pose elements
+    float headYaw, headPitch, headRoll;        // Head movement to track sword/target
+    float leftLegAngle, rightLegAngle;         // Leg positioning for stance
+    float characterYOffset;                    // Body elevation for dynamic poses
+    float leftWristPitch, rightWristPitch;    // Detailed wrist control
+    float stanceWidth;                         // How wide the warrior stance is
+};
+
+// Sword attack sequences - 3 phases each: windup, strike, recover
+SwordAttackPose gSlashSequence[3];    // Horizontal slash attack
+SwordAttackPose gThrustSequence[3];   // Forward thrust attack
+SwordAttackPose gComboSequence[6];    // 6-phase combo attack
+SwordAttackPose gCurrentSwordPose, gTargetSwordPose;
+
 // =========================================================
 // == 📍 NEW: ANIMATION AMPLITUDE CONTROLS ==
 // =========================================================
@@ -234,13 +283,12 @@ const float BODY_BOB_AMOUNT = 0.03f;     // How much the body moves up and down
 
 // --- Data Structures ---
 
-// Base mesh data (read-only aftfer creation)
+// Base mesh data (read-only after creation)
 std::vector<Vec3f> gAllVertices;
 std::vector<std::vector<int>> gAllQuads;
 std::vector<Tri>   gTris;
 std::vector<Vec3f> gVertexNormals;
-struct Vec2f { float u, v; };
-std::vector<Vec2f> gTexCoords;
+
 // These will be modified each frame to create the animation
 std::vector<Vec3f> gAnimatedVertices;
 std::vector<Vec3f> gAnimatedNormals;
@@ -252,6 +300,8 @@ struct ArmJoint { Vec3 position; int parentIndex; };
 GLuint g_HandTexture = 0; // texture name
 BITMAP BMP; // bitmap structure
 HBITMAP hBMP = NULL; // bitmap handle
+
+// Texture enabled flag
 bool g_TextureEnabled = true;
 
 // --- Body/Head Data ---
@@ -259,42 +309,64 @@ GLUquadric* g_headQuadric = nullptr;
 float* segCos = nullptr;
 float* segSin = nullptr;
 
-static void setRenderMode(RenderMode m) {
-    gRenderMode = m;
-    switch (gRenderMode) {
-    case RM_WIREFRAME:
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glDisable(GL_TEXTURE_2D);
-        glDisable(GL_LIGHTING); // Wireframe is easier to see without lighting
-        break;
-    case RM_SOLID:
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glDisable(GL_TEXTURE_2D);
-        glEnable(GL_LIGHTING);
-        break;
-    case RM_TEXTURED:
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glEnable(GL_TEXTURE_2D);
-        glEnable(GL_LIGHTING);
-        break;
+
+// =========================== Texture Support ===========================
+// Texture loading function
+GLuint loadTexture(LPCSTR filename) {
+    GLuint texture = 0;
+
+    // Initialize texture info
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    HBITMAP hBMP = (HBITMAP)LoadImageA(GetModuleHandle(NULL), filename, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION | LR_LOADFROMFILE);
+
+    if (hBMP == NULL) {
+        // If file not found, create a simple procedural texture
+        return 0; // Return 0 to indicate no texture
     }
+
+    GetObject(hBMP, sizeof(BMP), &BMP);
+
+    // Assign texture to polygon
+    glEnable(GL_TEXTURE_2D);
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BMP.bmWidth, BMP.bmHeight, 0, GL_BGR, GL_UNSIGNED_BYTE, BMP.bmBits);
+
+    DeleteObject(hBMP);
+    return texture;
 }
 
-inline void bindConcreteTex() {
-    if (g_TextureEnabled) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Silver]); // or whatever slot your “concrete” uses
-        glColor3f(1.0f, 1.0f, 1.0f);
-        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+// Create a simple procedural skin texture in memory
+GLuint createSkinTexture() {
+    const int texWidth = 64;
+    const int texHeight = 64;
+    unsigned char* textureData = new unsigned char[texWidth * texHeight * 3];
+
+    // Create a simple skin-colored pattern
+    for (int y = 0; y < texHeight; y++) {
+        for (int x = 0; x < texWidth; x++) {
+            int index = (y * texWidth + x) * 3;
+
+            // Base skin color with some variation
+            float variation = (sinf(x * 0.2f) * cosf(y * 0.15f) + 1.0f) * 0.1f;
+
+            textureData[index] = (unsigned char)(220 + variation * 35);      // R
+            textureData[index + 1] = (unsigned char)(180 + variation * 25); // G  
+            textureData[index + 2] = (unsigned char)(140 + variation * 20); // B
+        }
     }
-}
 
-inline void unbindConcreteTex() {
-    Tex::unbind();
-}
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texWidth, texHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, textureData);
 
-inline void setSolidColorIfNeeded(float r, float g, float b) {
-    if (gRenderMode != RM_TEXTURED) glColor3f(r, g, b); // TextureScope sets white for textured
+    delete[] textureData;
+    return texture;
 }
 // =============================================================
 
@@ -361,260 +433,6 @@ std::vector<ArmJoint> g_ArmJoints2;
 
 // ===================================================================
 //
-// SWORD MODEL INTEGRATION
-//
-// ===================================================================
-
-// --- Sword State Variables ---
-bool gSwordVisible = false;
-bool gSwordInRightHand = true; // true = right hand, false = left hand
-float gSwordScale = 0.3f; // Scale down the sword to fit in hand
-
-// SWORD CONTROLS:
-// Press 'X' to toggle sword visibility
-// Press 'Z' to switch sword between left and right hand
-// When holding sword, the hand automatically forms a fist for proper grip
-
-// --- Sword Material Properties ---
-struct SwordMaterial {
-    GLfloat ambient[4];
-    GLfloat diffuse[4];
-    GLfloat specular[4];
-    GLfloat shininess;
-};
-
-// Define materials for our sword parts
-SwordMaterial polishedSteel = {
-    {0.23f, 0.23f, 0.23f, 1.0f}, {0.77f, 0.77f, 0.77f, 1.0f},
-    {0.99f, 0.99f, 0.99f, 1.0f}, 100.0f
-};
-SwordMaterial darkJade = {
-    {0.0f, 0.1f, 0.05f, 1.0f}, {0.1f, 0.35f, 0.2f, 1.0f},
-    {0.45f, 0.55f, 0.45f, 1.0f}, 32.0f
-};
-SwordMaterial hiltWrap = {
-    {0.08f, 0.05f, 0.05f, 1.0f}, {0.2f, 0.15f, 0.15f, 1.0f},
-    {0.1f, 0.1f, 0.1f, 1.0f}, 10.0f
-};
-
-// Helper function to apply a material
-void setSwordMaterial(const SwordMaterial& mat) {
-    glMaterialfv(GL_FRONT, GL_AMBIENT, mat.ambient);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, mat.diffuse);
-    glMaterialfv(GL_FRONT, GL_SPECULAR, mat.specular);
-    glMaterialf(GL_FRONT, GL_SHININESS, mat.shininess);
-}
-
-// Put this at file-scope, above your draw* functions
-struct TextureScope {
-    bool didBind = false;
-    bool useTexGen = false;
-    TextureScope(GLuint tex, bool enableTexGen = false,
-        float sScale = 0.35f, float tScale = 0.35f, float rScale = 0.35f)
-        : useTexGen(enableTexGen)
-    {
-        if (gRenderMode == RM_TEXTURED) {
-            glEnable(GL_TEXTURE_2D);
-            Tex::bind(tex);
-            glColor3f(1.f, 1.f, 1.f);
-            didBind = true;
-            if (useTexGen) Tex::enableObjectLinearST(sScale, tScale, rScale);
-        }
-    }
-    ~TextureScope() {
-        if (!didBind) return;
-        if (useTexGen) Tex::disableObjectLinearST();
-        Tex::unbind();
-    }
-};
-
-
-// --- Sword Drawing Functions ---
-void drawSwordSphere(double r, int lats, int longs) {
-    for (int i = 0; i <= lats; i++) {
-        double lat0 = PI * (-0.5 + (double)(i - 1) / lats);
-        double z0 = r * sin(lat0); double zr0 = r * cos(lat0);
-        double lat1 = PI * (-0.5 + (double)i / lats);
-        double z1 = r * sin(lat1); double zr1 = r * cos(lat1);
-        glBegin(GL_TRIANGLE_STRIP);
-        for (int j = 0; j <= longs; j++) {
-            double lng = 2 * PI * (double)(j - 1) / longs;
-            double x = cos(lng); double y = sin(lng);
-            glNormal3f(x * zr0, y * zr0, z0); glVertex3f(x * zr0, y * zr0, z0);
-            glNormal3f(x * zr1, y * zr1, z1); glVertex3f(x * zr1, y * zr1, z1);
-        }
-        glEnd();
-    }
-}
-
-void drawSwordCylinder(double r, double h, int slices) {
-    glBegin(GL_QUAD_STRIP);
-    for (int i = 0; i <= slices; i++) {
-        float angle = 2.0f * PI * i / slices;
-        float x = cos(angle); float z = sin(angle);
-        glNormal3f(x, 0.0f, z);
-        glVertex3f(r * x, h, r * z); glVertex3f(r * x, 0.0f, r * z);
-    }
-    glEnd();
-    glBegin(GL_TRIANGLE_FAN);
-    glNormal3f(0.0f, 1.0f, 0.0f); glVertex3f(0.0f, h, 0.0f);
-    for (int i = 0; i <= slices; i++) {
-        float angle = 2.0f * PI * i / slices;
-        glVertex3f(r * cos(angle), h, r * sin(angle));
-    }
-    glEnd();
-    glBegin(GL_TRIANGLE_FAN);
-    glNormal3f(0.0f, -1.0f, 0.0f); glVertex3f(0.0f, 0.0f, 0.0f);
-    for (int i = slices; i >= 0; i--) {
-        float angle = 2.0f * PI * i / slices;
-        glVertex3f(r * cos(angle), 0.0f, r * sin(angle));
-    }
-    glEnd();
-}
-
-void drawSwordInscription() {
-    glDisable(GL_LIGHTING);
-    glColor3f(0.1f, 0.1f, 0.1f); glLineWidth(2.0f);
-    glPushMatrix();
-    glTranslatef(0.0f, 0.5f, 0.051f);
-    glScalef(0.05f, 0.05f, 0.05f);
-    glBegin(GL_LINES); // 忠
-    glVertex2f(-1, -1); glVertex2f(1, -1); glVertex2f(1, -1); glVertex2f(1, 1);
-    glVertex2f(1, 1); glVertex2f(-1, 1); glVertex2f(-1, 1); glVertex2f(-1, -1);
-    glVertex2f(0, -1); glVertex2f(0, 1);
-    glEnd();
-    glTranslatef(0.0f, -3.0f, 0.0f);
-    glBegin(GL_LINES); // 勇
-    glVertex2f(0, 1); glVertex2f(-1, 0.5); glVertex2f(0, 1); glVertex2f(1, 0.5);
-    glVertex2f(-0.5, 0); glVertex2f(0.5, 0); glVertex2f(-1.2, -0.5); glVertex2f(1.2, -0.5);
-    glVertex2f(0, -0.5); glVertex2f(-0.5, -1);
-    glEnd();
-    glTranslatef(0.0f, -3.0f, 0.0f);
-    glBegin(GL_LINES); // 真
-    glVertex2f(0, 1); glVertex2f(0, 0); glVertex2f(-1, 1); glVertex2f(1, 1);
-    glVertex2f(-1, 0); glVertex2f(1, 0); glVertex2f(-0.8, -0.5); glVertex2f(-0.2, -1);
-    glVertex2f(0.8, -0.5); glVertex2f(0.2, -1);
-    glEnd();
-    glPopMatrix();
-    glEnable(GL_LIGHTING);
-}
-
-void drawSwordBlade() {
-    setSwordMaterial(polishedSteel);
-    float bladeLength = 5.0f; float bladeWidth = 0.2f; float bladeThickness = 0.05f;
-    glBegin(GL_QUADS);
-    glNormal3f(0.5f, 0.125f, 0.0f);
-    glVertex3f(0.0f, 0.0f, bladeThickness); glVertex3f(bladeWidth, 0.0f, 0.0f); glVertex3f(bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
-    glNormal3f(0.5f, -0.125f, 0.0f);
-    glVertex3f(bladeWidth, 0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(bladeWidth, bladeLength, 0.0f);
-    glNormal3f(-0.5f, 0.125f, 0.0f);
-    glVertex3f(0.0f, 0.0f, bladeThickness); glVertex3f(-bladeWidth, 0.0f, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
-    glNormal3f(-0.5f, -0.125f, 0.0f);
-    glVertex3f(-bladeWidth, 0.0f, 0.0f); glVertex3f(0.0f, 0.0f, -bladeThickness); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
-    glEnd();
-    glBegin(GL_TRIANGLES);
-    float tipLength = 0.5f;
-    glNormal3f(0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
-    glNormal3f(0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(bladeWidth, bladeLength, 0.0f);
-    glNormal3f(-0.5f, 0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(-bladeWidth, bladeLength, 0.0f); glVertex3f(0.0f, bladeLength, bladeThickness);
-    glNormal3f(-0.5f, -0.5f, 0.0f); glVertex3f(0.0f, bladeLength + tipLength, 0.0f); glVertex3f(0.0f, bladeLength, -bladeThickness); glVertex3f(-bladeWidth, bladeLength, 0.0f);
-    glEnd();
-    drawSwordInscription();
-}
-
-void drawSwordGuard() {
-    setSwordMaterial(darkJade);
-    float guardWidth = 0.6f; float guardHeight = 0.2f; float guardDepth = 0.1f; int segments = 10;
-    glBegin(GL_QUAD_STRIP);
-    for (int i = 0; i <= segments; ++i) {
-        float angle = (PI / segments) * i;
-        float x = guardWidth * cos(angle); float y = guardHeight * sin(angle) - (guardHeight * 0.5f);
-        glNormal3f(cos(angle), sin(angle), 0.0f);
-        glVertex3f(x, y, guardDepth); glVertex3f(x, y, -guardDepth);
-    }
-    glEnd();
-    glBegin(GL_QUAD_STRIP);
-    for (int i = 0; i <= segments; ++i) {
-        float angle = (PI / segments) * i;
-        float x = -guardWidth * cos(angle); float y = guardHeight * sin(angle) - (guardHeight * 0.5f);
-        glNormal3f(-cos(angle), sin(angle), 0.0f);
-        glVertex3f(x, y, guardDepth); glVertex3f(x, y, -guardDepth);
-    }
-    glEnd();
-}
-
-void drawSwordHilt() {
-    setSwordMaterial(hiltWrap);
-    drawSwordCylinder(0.1f, 1.2f, 20);
-    glDisable(GL_LIGHTING);
-    glColor3f(0.2f, 0.4f, 0.25f);
-    float wrapRadius = 0.1f * 1.05f; float wrapWidth = 0.02f;
-    glBegin(GL_QUAD_STRIP);
-    for (float i = 0; i < 1.2f; i += 0.05f) {
-        float angle = i * 15.0f;
-        glVertex3f(wrapRadius * cos(angle), i, wrapRadius * sin(angle));
-        glVertex3f((wrapRadius - wrapWidth) * cos(angle), i, (wrapRadius - wrapWidth) * sin(angle));
-    }
-    glEnd();
-    glEnable(GL_LIGHTING);
-}
-
-void drawSwordPommel() {
-    setSwordMaterial(darkJade);
-    glPushMatrix();
-    glScalef(1.0f, 0.7f, 1.0f);
-    drawSwordSphere(0.18f, 30, 30);
-    glPopMatrix();
-}
-
-void drawSwordTassel() {
-    glPushMatrix();
-    glTranslatef(0.0f, -0.05f, 0.0f);
-    setSwordMaterial(darkJade);
-    drawSwordSphere(0.05f, 20, 20);
-    glPopMatrix();
-    glDisable(GL_LIGHTING);
-    glColor3f(0.9f, 0.2f, 0.3f); glLineWidth(2.5f);
-    glBegin(GL_LINES);
-    for (int i = 0; i < 12; ++i) {
-        float angle = 2 * PI * i / 12.0f;
-        glVertex3f(0.0f, -0.1f, 0.0f);
-        glVertex3f(0.2f * cos(angle), -0.8f, 0.2f * sin(angle));
-    }
-    glEnd();
-    glEnable(GL_LIGHTING);
-}
-
-// Main sword drawing function
-void drawSword() {
-    if (!gSwordVisible) return;
-
-    glPushMatrix();
-
-    // Scale the sword to fit in hand
-    glScalef(gSwordScale, gSwordScale, gSwordScale);
-
-    // Position sword components relative to grip point (0,0,0)
-    glTranslatef(0.0, -3.0, 0.0); // Move so grip is at origin
-
-    // Render sword components
-    drawSwordBlade();
-    drawSwordGuard();
-    glPushMatrix();
-    glTranslatef(0.0, -1.2, 0.0);
-    drawSwordHilt();
-    glPopMatrix();
-    glPushMatrix();
-    glTranslatef(0.0, -1.3, 0.0);
-    drawSwordPommel();
-    drawSwordTassel();
-    glPopMatrix();
-
-    glPopMatrix();
-}
-
-// ===================================================================
-//
 // SECTION 2: HELPER & SETUP FUNCTIONS
 //
 // ===================================================================
@@ -624,6 +442,7 @@ LRESULT WINAPI WindowProcedure(HWND, UINT, WPARAM, LPARAM);
 void display();
 void updateCharacter(float dt);
 void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle); // Updated signature
+void drawSkirt(float leftLegAngle, float rightLegAngle);
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle);
 void drawInternalShoulderJoints();
 void drawCustomFaceShape();
@@ -649,6 +468,12 @@ void initializeKungFuSequences(); // Add kung fu animation initialization
 void updateKungFuAnimation(float deltaTime);
 void startKungFuAnimation(int style);
 
+// --- Sword Attack Animation Forward Declarations ---
+void initializeSwordAttackSequences(); // Initialize sword attack poses
+void updateSwordAttackAnimation(float deltaTime); // Update sword attack animation
+void startSwordAttack(int attackType); // Start sword attack (0=slash, 1=thrust, 2=combo)
+SwordAttackPose lerpSwordPose(const SwordAttackPose& from, const SwordAttackPose& to, float t); // Interpolate poses
+
 // --- Hand Drawing Function Forward Declarations ---
 void drawConcretePalm(const std::vector<HandJoint>& joints);
 void drawConcreteThumb(const std::vector<HandJoint>& joints);
@@ -657,21 +482,6 @@ void drawSkinnedPalm(const std::vector<HandJoint>& joints);
 void drawSkinnedPalm2(const std::vector<HandJoint>& joints);
 void drawLowPolyThumb(const std::vector<HandJoint>& joints);
 void drawLowPolyFinger(const std::vector<HandJoint>& joints, int mcpIdx, int pipIdx, int dipIdx, int tipIdx);
-
-// ======== SKIN TEXTURE HELPERS ========
-inline void useSkinTexture() {
-    if (g_TextureEnabled) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Skin]);   // requires Tex::loadAll() to have run
-        glColor3f(1.0f, 1.0f, 1.0f);     // show texture colors
-        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    }
-}
-
-inline void stopTexture() {
-    Tex::unbind();
-}
-
 
 // --- Math & Model Building ---
 float dot(const Vec3f& a, const Vec3f& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
@@ -782,57 +592,6 @@ void buildLegMesh() {
     const float footScaleX = 0.95f, footScaleZ = 0.95f, footLift = 0.0f, footShiftZ = -0.15f, footYaw = 0.0f; int footStartIdx = currentVertexIndex; for (int i = 0; i < gNumFootVertices; ++i) { Vec3f v = gFootVertices[i]; v.x *= footScaleX * legScale; v.z *= footScaleZ * legScale; v = rotateY(v, footYaw); v.y += footLift; v.z += footShiftZ; gAllVertices.push_back(v); ++currentVertexIndex; } for (int i = 0; i < gNumFootQuads; ++i) { std::vector<int> quad; for (int j = 0; j < 4; ++j) { int idx = gFootQuads[i][j]; if (idx == -1) break; quad.push_back(footStartIdx + idx); } gAllQuads.push_back(quad); }
     int footRingStart = footStartIdx + 44; int footRingCount = 6; int adapterStartIdx = currentVertexIndex; for (int i = 0; i < 12; ++i) { float s = (i / 12.0f) * footRingCount; int k = (int)std::floor(s); float t = s - k; int k0 = (k) % footRingCount; int k1 = (k + 1) % footRingCount; const Vec3f& a = gAllVertices[footRingStart + k0]; const Vec3f& b = gAllVertices[footRingStart + k1]; Vec3f sample = { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t }; gAllVertices.push_back(sample); ++currentVertexIndex; } addRingQuads(ankleRingIdx, adapterStartIdx, 12);
 }
-
-void computeLegFootUVs() {
-    gTexCoords.resize(gAllVertices.size());
-    if (gAllVertices.empty()) return;
-
-    float yMin = 1e9f, yMax = -1e9f;
-    for (const auto& v : gAllVertices) {
-        yMin = std::min(yMin, v.y);
-        yMax = std::max(yMax, v.y);
-    }
-    float ySpan = std::max(0.001f, yMax - yMin);
-    float footCutoffY = yMin + 1.2f;
-
-    for (size_t i = 0; i < gAllVertices.size(); ++i) {
-        const auto& v = gAllVertices[i];
-        if (v.y <= footCutoffY) { // Planar mapping for the foot
-            float u = (v.x + 0.6f) / 1.2f;
-            float vv = (v.z + 0.8f) / 2.3f;
-            gTexCoords[i] = { u, vv };
-        }
-        else { // Cylindrical mapping for the leg
-            float angle = atan2(v.x, v.z);
-            float u = (angle + PI) / (2.0f * PI);
-            float vv = (v.y - yMin) / ySpan;
-            gTexCoords[i] = { u, vv };
-        }
-    }
-}
-void drawLegAndFootMesh() {
-    // Make sure we use the explicit UVs we computed (no texgen!)
-    if (gRenderMode == RM_TEXTURED) Tex::disableObjectLinearST();
-
-    setSolidColorIfNeeded(0.9f, 0.7f, 0.6f);
-    TextureScope ts(Tex::id[Tex::Skin], /*useTexGen*/false);  // binds + enables in RM_TEXTURED
-
-    glBegin(GL_TRIANGLES);
-    for (const auto& t : gTris) {
-        auto emit = [&](int idx) {
-            const Vec3f& v = gAllVertices[idx];
-            const Vec3f& n = gVertexNormals[idx];
-            const Vec2f& uv = gTexCoords[idx];
-            glNormal3f(n.x, n.y, n.z);
-            glTexCoord2f(uv.u, uv.v);   // these now take effect
-            glVertex3f(v.x, v.y, v.z);
-            };
-        emit(t.a); emit(t.b); emit(t.c);
-    }
-    glEnd();
-}
-
-
 
 // --------------------- Triangles & Normals from leg.cpp ---------------------
 Vec3f faceNormal(int i0, int i1, int i2) {
@@ -963,30 +722,23 @@ static void InitializeArm2() {
 }
 
 void initializeCharacterParts() {
-    initializeSegmentArrays();
+    initializeSegmentArrays(); // Initialize dynamic segment arrays for configurable geometry
     buildLegMesh();
     buildTriangles();
     computeVertexNormals();
-    computeLegFootUVs(); // <<< Call the new UV generation function
-
     InitializeHand();
     InitializeHand2();
     InitializeArm();
     InitializeArm2();
-    initializeFistPositions();
-    initializeKungFuSequences();
-
-    Tex::loadAll(); // Load all textures from your texture manager
-
-    if (!g_headQuadric) {
-        g_headQuadric = gluNewQuadric();
-        gluQuadricNormals(g_headQuadric, GLU_SMOOTH);
-        gluQuadricTexture(g_headQuadric, GL_TRUE);
+    initializeFistPositions(); // Initialize fist poses
+    initializeKungFuSequences(); // Initialize kung fu animation sequences
+    initializeSwordAttackSequences(); // Initialize sword attack sequences
+    BackgroundRenderer::init(); // Initialize background rendering system
+    g_HandTexture = loadTexture("skin.bmp");
+    if (g_HandTexture == 0) {
+        g_HandTexture = createSkinTexture();
     }
-    BackgroundRenderer::init();
-    setRenderMode(gRenderMode); // Set initial render state
 }
-
 
 // ===================================================================
 //
@@ -1420,27 +1172,26 @@ static void drawFingertip(const Vec3& position, float radius) {
 // Draw arm connector segment at the base of the hand to bridge to wrist joint
 static void drawHandArmConnector(const std::vector<HandJoint>& joints) {
     Vec3 wrist = joints[0].position;
-
+    
     // Create arm-like connector extending from hand base toward wrist
     // Make it extend backward (negative Z direction) from the palm to meet the arm
     Vec3 connectorStart = { wrist.x, wrist.y, wrist.z - 0.8f };  // Extended back from palm base
     Vec3 connectorEnd = wrist;
-
+    
     // Enable texturing to match the arm
     if (g_TextureEnabled) {
-        Tex::bind(Tex::id[gConcreteHands ? Tex::Silver : Tex::Skin]);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
         glColor3f(1.0f, 1.0f, 1.0f);
     }
     else {
-        Tex::unbind();
         glDisable(GL_TEXTURE_2D);
-        glColor3f(0.85f, 0.64f, 0.52f);
+        glColor3f(0.85f, 0.64f, 0.52f); // Skin color to match arm
     }
-
-
+    
     // Draw the connecting segment using anatomical arm style
     drawAnatomicalArmSegment(connectorStart, connectorEnd, 1.2f, 0.9f, 0.9f, 0.7f);
-
+    
     // Draw a joint at the connection point
     drawRobotJoint(connectorEnd, 0.12f);
 }
@@ -1448,25 +1199,25 @@ static void drawHandArmConnector(const std::vector<HandJoint>& joints) {
 // Draw joint visualization sphere
 static void drawJointSphere(const Vec3& pos, float radius, float r, float g, float b) {
     if (!gShowJointVisuals) return;
-    glPushAttrib(GL_ENABLE_BIT);
+    
     glPushMatrix();
     glTranslatef(pos.x, pos.y, pos.z);
     glDisable(GL_TEXTURE_2D);
     glColor3f(r, g, b);
-
+    
     // Draw sphere using triangle strips
     const int slices = 8;
     const int stacks = 6;
-
+    
     for (int i = 0; i < stacks; ++i) {
         float lat0 = PI * (-0.5f + (float)i / stacks);
         float lat1 = PI * (-0.5f + (float)(i + 1) / stacks);
-
+        
         float y0 = radius * sinf(lat0);
         float y1 = radius * sinf(lat1);
         float r0 = radius * cosf(lat0);
         float r1 = radius * cosf(lat1);
-
+        
         glBegin(GL_TRIANGLE_STRIP);
         for (int j = 0; j <= slices; ++j) {
             float lng = 2.0f * PI * (float)j / slices;
@@ -1474,30 +1225,29 @@ static void drawJointSphere(const Vec3& pos, float radius, float r, float g, flo
             float z0 = r0 * sinf(lng);
             float x1 = r1 * cosf(lng);
             float z1 = r1 * sinf(lng);
-
+            
             glVertex3f(x0, y0, z0);
             glVertex3f(x1, y1, z1);
         }
         glEnd();
     }
-
+    
     glPopMatrix();
-    glPopAttrib();
 }
 
 // Draw joint visualization box
 static void drawJointBox(const Vec3& pos, float size, float r, float g, float b) {
     if (!gShowJointVisuals) return;
-    glPushAttrib(GL_ENABLE_BIT);
+    
     glPushMatrix();
     glTranslatef(pos.x, pos.y, pos.z);
     glDisable(GL_TEXTURE_2D);
     glColor3f(r, g, b);
-
+    
     float half = size * 0.5f;
-
+    
     glBegin(GL_TRIANGLES);
-
+    
     // Front face
     glVertex3f(-half, -half, half);
     glVertex3f(half, -half, half);
@@ -1505,7 +1255,7 @@ static void drawJointBox(const Vec3& pos, float size, float r, float g, float b)
     glVertex3f(-half, -half, half);
     glVertex3f(half, half, half);
     glVertex3f(-half, half, half);
-
+    
     // Back face
     glVertex3f(half, -half, -half);
     glVertex3f(-half, -half, -half);
@@ -1513,7 +1263,7 @@ static void drawJointBox(const Vec3& pos, float size, float r, float g, float b)
     glVertex3f(half, -half, -half);
     glVertex3f(-half, half, -half);
     glVertex3f(half, half, -half);
-
+    
     // Right face
     glVertex3f(half, -half, half);
     glVertex3f(half, -half, -half);
@@ -1521,7 +1271,7 @@ static void drawJointBox(const Vec3& pos, float size, float r, float g, float b)
     glVertex3f(half, -half, half);
     glVertex3f(half, half, -half);
     glVertex3f(half, half, half);
-
+    
     // Left face
     glVertex3f(-half, -half, -half);
     glVertex3f(-half, -half, half);
@@ -1529,7 +1279,7 @@ static void drawJointBox(const Vec3& pos, float size, float r, float g, float b)
     glVertex3f(-half, -half, -half);
     glVertex3f(-half, half, half);
     glVertex3f(-half, half, -half);
-
+    
     // Top face
     glVertex3f(-half, half, half);
     glVertex3f(half, half, half);
@@ -1537,7 +1287,7 @@ static void drawJointBox(const Vec3& pos, float size, float r, float g, float b)
     glVertex3f(-half, half, half);
     glVertex3f(half, half, -half);
     glVertex3f(-half, half, -half);
-
+    
     // Bottom face
     glVertex3f(-half, -half, -half);
     glVertex3f(half, -half, -half);
@@ -1545,10 +1295,9 @@ static void drawJointBox(const Vec3& pos, float size, float r, float g, float b)
     glVertex3f(-half, -half, -half);
     glVertex3f(half, -half, half);
     glVertex3f(-half, -half, half);
-
+    
     glEnd();
     glPopMatrix();
-    glPopAttrib();
 }
 
 // Smooth interpolation function
@@ -1559,22 +1308,22 @@ float lerpf(float a, float b, float t) {
 // Update boxing stance animation
 void updateBoxingStance(float deltaTime) {
     if (!gBoxingAnimActive) return;
-
+    
     gBoxingAnimTime += deltaTime;
     float progress = gBoxingAnimTime / BOXING_ANIM_DURATION;
-
+    
     if (progress >= 1.0f) {
         progress = 1.0f;
         gBoxingAnimActive = false;
     }
-
+    
     // Apply smooth easing
     float easedProgress = smoothStep(progress);
-
+    
     // Determine target values based on stance
     float targetLeftShoulderPitch, targetLeftShoulderYaw, targetLeftShoulderRoll, targetLeftElbowBend;
     float targetRightShoulderPitch, targetRightShoulderYaw, targetRightShoulderRoll, targetRightElbowBend;
-
+    
     if (gInBoxingStance) {
         // Transitioning to boxing stance
         targetLeftShoulderPitch = BOXING_SHOULDER_PITCH;
@@ -1585,8 +1334,7 @@ void updateBoxingStance(float deltaTime) {
         targetRightShoulderYaw = -BOXING_SHOULDER_YAW; // Mirror for right arm
         targetRightShoulderRoll = BOXING_SHOULDER_ROLL;  // 180-degree rotation
         targetRightElbowBend = BOXING_ELBOW_BEND;
-    }
-    else {
+    } else {
         // Transitioning to relaxed pose
         targetLeftShoulderPitch = RELAXED_SHOULDER_PITCH;
         targetLeftShoulderYaw = RELAXED_SHOULDER_YAW;
@@ -1597,7 +1345,7 @@ void updateBoxingStance(float deltaTime) {
         targetRightShoulderRoll = RELAXED_SHOULDER_ROLL;
         targetRightElbowBend = RELAXED_ELBOW_BEND;
     }
-
+    
     // Interpolate current values
     gCurrentLeftShoulderPitch = lerpf(RELAXED_SHOULDER_PITCH, targetLeftShoulderPitch, easedProgress);
     gCurrentLeftShoulderYaw = lerpf(RELAXED_SHOULDER_YAW, targetLeftShoulderYaw, easedProgress);
@@ -1612,7 +1360,7 @@ void updateBoxingStance(float deltaTime) {
 // Toggle boxing stance
 void toggleBoxingStance() {
     if (gBoxingAnimActive) return; // Don't interrupt ongoing animation
-
+    
     gInBoxingStance = !gInBoxingStance;
     gBoxingAnimActive = true;
     gBoxingAnimTime = 0.0f;
@@ -1630,22 +1378,21 @@ void startJump() {
 // Update jump animation
 void updateJumpAnimation(float deltaTime) {
     if (!gIsJumping) return;
-
+    
     // Advance jump phase
     gJumpPhase += deltaTime / JUMP_DURATION;
-
+    
     if (gJumpPhase >= 2.0f) {
         // Jump complete
         gIsJumping = false;
         gJumpPhase = 0.0f;
         gJumpVerticalOffset = 0.0f;
-    }
-    else {
+    } else {
         // Calculate vertical offset using a parabolic curve
         // Phase 0.0 to 1.0 = going up, 1.0 to 2.0 = coming down
         float normalizedPhase = gJumpPhase;
         if (normalizedPhase > 1.0f) normalizedPhase = 2.0f - normalizedPhase; // Mirror for descent
-
+        
         // Use parabolic curve for natural jump motion
         gJumpVerticalOffset = JUMP_HEIGHT * (4.0f * normalizedPhase * (1.0f - normalizedPhase));
     }
@@ -1658,7 +1405,7 @@ void startDance() {
         gDanceTime = 0.0f;
         gDancePhase = 0.0f;
         gJumpVerticalOffset = 0.0f;
-
+        
         // Reset all pose values to neutral before starting dance
         g_pose.torsoYaw = g_pose.torsoPitch = g_pose.torsoRoll = 0.0f;
         g_pose.headYaw = g_pose.headPitch = g_pose.headRoll = 0.0f;
@@ -1670,18 +1417,18 @@ void startDance() {
 // Update K-pop dance animation with full-body choreography
 void updateDance() {
     if (!gIsDancing) return;
-
+    
     const float deltaTime = 0.016f; // Assuming 60 FPS
     gDanceTime += deltaTime;
     gDancePhase = gDanceTime * DANCE_SPEED;
-
+    
     if (gDanceTime >= DANCE_DURATION) {
         // Dance complete - return to neutral pose
         gIsDancing = false;
         gDanceTime = 0.0f;
         gDancePhase = 0.0f;
         gJumpVerticalOffset = 0.0f;
-
+        
         // Reset pose to neutral
         g_pose.torsoYaw = g_pose.torsoPitch = g_pose.torsoRoll = 0.0f;
         g_pose.headYaw = g_pose.headPitch = g_pose.headRoll = 0.0f;
@@ -1689,73 +1436,66 @@ void updateDance() {
         gCurrentPose.torsoYaw = gCurrentPose.torsoPitch = gCurrentPose.torsoRoll = 0.0f;
         return;
     }
-
+    
     // K-pop dance choreography with 8-second sequence
     float t = gDancePhase;
     float beat = fmod(t, 1.0f); // Individual beat within each second
     int measure = (int)(gDanceTime * 2.0f) % 16; // 16 different measures for variety
-
+    
     // === ARM MOVEMENTS (K-pop style) ===
     float leftArmBase = 0.0f, rightArmBase = 0.0f;
-
+    
     if (measure < 2) {
         // Opening: Arms sweep out and up
         leftArmBase = -60.0f + sinf(t * 2.0f) * 40.0f;
         rightArmBase = -60.0f - sinf(t * 2.0f) * 40.0f;
-    }
-    else if (measure < 4) {
+    } else if (measure < 4) {
         // Wave motion: Arms create flowing waves
         leftArmBase = -30.0f + sinf(t * 3.0f) * 50.0f;
         rightArmBase = -30.0f + sinf(t * 3.0f + PI * 0.5f) * 50.0f;
-    }
-    else if (measure < 6) {
+    } else if (measure < 6) {
         // Point and pose: Sharp pointing moves
         leftArmBase = (beat < 0.5f) ? -80.0f : 20.0f;
         rightArmBase = (beat < 0.5f) ? 20.0f : -80.0f;
-    }
-    else if (measure < 8) {
+    } else if (measure < 8) {
         // Cross and uncross: Arms cross over chest
         float crossPhase = sinf(t * 4.0f);
         leftArmBase = crossPhase * -45.0f;
         rightArmBase = -crossPhase * -45.0f;
-    }
-    else if (measure < 10) {
+    } else if (measure < 10) {
         // High energy: Arms pump up and down
         leftArmBase = -90.0f + cosf(t * 6.0f) * 60.0f;
         rightArmBase = -90.0f + cosf(t * 6.0f + PI) * 60.0f;
-    }
-    else if (measure < 12) {
+    } else if (measure < 12) {
         // Side to side: Arms swing side to side
         leftArmBase = sinf(t * 2.0f) * -70.0f;
         rightArmBase = sinf(t * 2.0f) * 70.0f;
-    }
-    else if (measure < 14) {
+    } else if (measure < 14) {
         // Hip hop style: One arm up, one down alternating
         leftArmBase = (sinf(t * 4.0f) > 0) ? -90.0f : 30.0f;
         rightArmBase = (sinf(t * 4.0f) > 0) ? 30.0f : -90.0f;
-    }
-    else {
+    } else {
         // Finale: Both arms up in victory pose
         leftArmBase = -80.0f + sinf(t * 8.0f) * 10.0f;
         rightArmBase = -80.0f + sinf(t * 8.0f) * 10.0f;
     }
-
+    
     // Apply arm movements
     gCurrentPose.leftArmAngle = leftArmBase;
     gCurrentPose.rightArmAngle = rightArmBase;
-
+    
     // === TORSO MOVEMENTS ===
     // Torso sway and rotation
     g_pose.torsoYaw = sinf(t * 2.5f) * 15.0f;
     g_pose.torsoPitch = sinf(t * 1.8f) * 8.0f;
     g_pose.torsoRoll = cosf(t * 3.2f) * 12.0f;
-
+    
     // === HEAD MOVEMENTS ===
     // Head bobs and turns with the beat
     g_pose.headYaw = sinf(t * 3.0f) * 20.0f;
     g_pose.headPitch = cosf(t * 4.0f) * 10.0f;
     g_pose.headRoll = sinf(t * 2.8f) * 8.0f;
-
+    
     // === JUMPING AND BODY MOVEMENTS ===
     // Add periodic jumps during energetic sections
     if (measure >= 8 && measure < 12) {
@@ -1764,20 +1504,17 @@ void updateDance() {
         if (jumpCycle < 0.3f) {
             float jumpPhase = jumpCycle / 0.3f;
             gJumpVerticalOffset = JUMP_HEIGHT * sinf(jumpPhase * PI) * 0.7f; // Smaller jumps for dance
-        }
-        else {
+        } else {
             gJumpVerticalOffset = 0.0f;
         }
-    }
-    else if (measure >= 4 && measure < 6) {
+    } else if (measure >= 4 && measure < 6) {
         // Sharp movements section with small hops
         gJumpVerticalOffset = (sinf(t * 8.0f) > 0.8f) ? JUMP_HEIGHT * 0.3f : 0.0f;
-    }
-    else {
+    } else {
         // Ground-based movements
         gJumpVerticalOffset = sinf(t * 1.5f) * 0.2f; // Subtle body bobbing
     }
-
+    
     // Add extra body dynamics to make it more lively
     gCurrentPose.torsoYaw += g_pose.torsoYaw;
     gCurrentPose.torsoPitch += g_pose.torsoPitch;
@@ -1786,34 +1523,34 @@ void updateDance() {
 
 // Helper function to get transformed wrist position accounting for lower arm bending
 Vec3 getTransformedWristPosition(const std::vector<ArmJoint>& armJoints, float lowerArmBend) {
-    if (armJoints.size() < 8) return { 0.0f, 0.0f, 0.0f };
-
+    if (armJoints.size() < 8) return {0.0f, 0.0f, 0.0f};
+    
     Vec3 elbowPos = armJoints[3].position;
     Vec3 originalWristPos = armJoints[7].position; // Last joint is wrist
-
+    
     // Transform wrist position based on elbow bend
-    Vec3 relativePos = {
-        originalWristPos.x - elbowPos.x,
-        originalWristPos.y - elbowPos.y,
-        originalWristPos.z - elbowPos.z
+    Vec3 relativePos = { 
+        originalWristPos.x - elbowPos.x, 
+        originalWristPos.y - elbowPos.y, 
+        originalWristPos.z - elbowPos.z 
     };
-
+    
     // Apply rotation around X-axis (pitch rotation for bending up/down)
     float bendRad = lowerArmBend * PI / 180.0f;
     float cosB = cosf(bendRad);
     float sinB = sinf(bendRad);
-
+    
     Vec3 rotatedPos = {
         relativePos.x,
         relativePos.y * cosB - relativePos.z * sinB,
         relativePos.y * sinB + relativePos.z * cosB
     };
-
+    
     // Translate back from elbow origin
-    return {
-        rotatedPos.x + elbowPos.x,
-        rotatedPos.y + elbowPos.y,
-        rotatedPos.z + elbowPos.z
+    return { 
+        rotatedPos.x + elbowPos.x, 
+        rotatedPos.y + elbowPos.y, 
+        rotatedPos.z + elbowPos.z 
     };
 }
 
@@ -1821,47 +1558,57 @@ Vec3 getTransformedWristPosition(const std::vector<ArmJoint>& armJoints, float l
 static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
     if (armJoints.empty()) return;
 
+    // Enable texturing for the entire arm to match hand
+    if (g_TextureEnabled) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+        glColor3f(1.0f, 1.0f, 1.0f); // White to show texture clearly
+    }
+    else {
+        glDisable(GL_TEXTURE_2D);
+        glColor3f(0.85f, 0.64f, 0.52f); // Skin color for non-textured mode
+    }
+
     // Determine which arm this is and get the appropriate bend angle from boxing stance
     float lowerArmBend = 0.0f;
     if (&armJoints == &g_ArmJoints) {
         lowerArmBend = gCurrentLeftElbowBend;  // Use boxing stance angle
-    }
-    else if (&armJoints == &g_ArmJoints2) {
+    } else if (&armJoints == &g_ArmJoints2) {
         lowerArmBend = gCurrentRightElbowBend; // Use boxing stance angle
     }
 
     // Calculate transformed lower arm joint positions when bending
     std::vector<Vec3> transformedJoints;
     transformedJoints.resize(armJoints.size());
-
+    
     // Copy upper arm joints (0-3) without transformation
     for (size_t i = 0; i <= 3; ++i) {
         transformedJoints[i] = armJoints[i].position;
     }
-
+    
     // Transform lower arm joints (4-7) based on elbow bend
     Vec3 elbowPos = armJoints[3].position;
     for (size_t i = 4; i < armJoints.size(); ++i) {
         Vec3 originalPos = armJoints[i].position;
         // Translate to elbow origin
         Vec3 relativePos = { originalPos.x - elbowPos.x, originalPos.y - elbowPos.y, originalPos.z - elbowPos.z };
-
+        
         // Apply rotation around X-axis (pitch rotation for bending up/down)
         float bendRad = lowerArmBend * PI / 180.0f;
         float cosB = cosf(bendRad);
         float sinB = sinf(bendRad);
-
+        
         Vec3 rotatedPos = {
             relativePos.x,
             relativePos.y * cosB - relativePos.z * sinB,
             relativePos.y * sinB + relativePos.z * cosB
         };
-
+        
         // Translate back from elbow origin
-        transformedJoints[i] = {
-            rotatedPos.x + elbowPos.x,
-            rotatedPos.y + elbowPos.y,
-            rotatedPos.z + elbowPos.z
+        transformedJoints[i] = { 
+            rotatedPos.x + elbowPos.x, 
+            rotatedPos.y + elbowPos.y, 
+            rotatedPos.z + elbowPos.z 
         };
     }
 
@@ -1885,8 +1632,8 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
 
     // Add wrist extension that bridges directly to hand positioning
     // This extension should match exactly where the hand will be positioned
-    Vec3 wristToHandBridge = {
-        transformedJoints[7].x,
+    Vec3 wristToHandBridge = { 
+        transformedJoints[7].x, 
         transformedJoints[7].y + 0.02f,  // Small Y offset matching hand positioning
         transformedJoints[7].z + 0.15f   // Bridge forward to where hand base will be
     };
@@ -1902,14 +1649,14 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
     // ========== INTEGRATED HAND DRAWING ==========
     // Draw the hand directly attached to the final wrist joint
     glPushMatrix();
-
+    
     // Move to the exact transformed wrist position
     Vec3 finalWrist = transformedJoints[7];
     glTranslatef(finalWrist.x, finalWrist.y, finalWrist.z);
-
+    
     // Add small offset to position hand properly relative to wrist
     glTranslatef(0.0f, 0.02f, 0.15f);
-
+    
     // Determine which hand this is and apply appropriate rotations
     if (&armJoints == &g_ArmJoints) {
         // Left hand - rotate based on boxing stance
@@ -1917,28 +1664,25 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
             // Boxing stance: palm facing down
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f);  // Rotate around X-axis to make palm face down
             glRotatef(180.0f, 0.0f, 0.0f, 1.0f); // Additional Z rotation for proper orientation
-        }
-        else {
+        } else {
             // Normal stance: palm facing forward
             glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
         }
-    }
-    else if (&armJoints == &g_ArmJoints2) {
+    } else if (&armJoints == &g_ArmJoints2) {
         // Right hand - rotate based on boxing stance
         if (gInBoxingStance) {
             // Boxing stance: palm facing down
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f);  // Rotate around X-axis to make palm face down
             glRotatef(180.0f, 0.0f, 0.0f, 1.0f); // Additional Z rotation for proper orientation
-        }
-        else {
+        } else {
             // Normal stance: palm facing forward
             glRotatef(180.0f, 0.0f, 0.0f, 1.0f);
         }
     }
-
+    
     // Scale the hand appropriately
     glScalef(HAND_SCALE * 1.0f, HAND_SCALE * 1.0f, HAND_SCALE * 1.1f);
-
+    
     // Draw the appropriate hand
     if (&armJoints == &g_ArmJoints) {
         // Left hand
@@ -1966,8 +1710,7 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
             drawLowPolyFinger(g_HandJoints, 13, 14, 15, 16);
             drawLowPolyFinger(g_HandJoints, 17, 18, 19, 20);
         }
-    }
-    else if (&armJoints == &g_ArmJoints2) {
+    } else if (&armJoints == &g_ArmJoints2) {
         // Right hand
         if (gConcreteHands) {
             // Draw concrete hands
@@ -1994,29 +1737,27 @@ static void drawLowPolyArm(const std::vector<ArmJoint>& armJoints) {
             drawLowPolyFinger(g_HandJoints2, 17, 18, 19, 20);
         }
     }
-
+    
     glPopMatrix();
     // ========== END INTEGRATED HAND DRAWING ==========
-
+    
     // ========== JOINT VISUALIZATIONS ==========
     // Draw elbow joint sphere (pivot point) - bright red
     drawJointSphere(transformedJoints[3], 0.08f, 1.0f, 0.0f, 0.0f);
-
+    
     // Draw wrist joint box (end of lower arm) - bright green
     drawJointBox(transformedJoints[7], 0.1f, 0.0f, 1.0f, 0.0f);
-
+    
     // Draw additional joint markers for better visualization
     for (size_t i = 1; i < transformedJoints.size(); ++i) {
         Vec3 pos = transformedJoints[i];
         if (i == 3) {
             // Elbow - larger red sphere
             drawJointSphere(pos, 0.1f, 1.0f, 0.0f, 0.0f);
-        }
-        else if (i == 7) {
+        } else if (i == 7) {
             // Wrist - green box
             drawJointBox(pos, 0.08f, 0.0f, 1.0f, 0.0f);
-        }
-        else {
+        } else {
             // Other joints - small yellow spheres
             drawJointSphere(pos, 0.05f, 1.0f, 1.0f, 0.0f);
         }
@@ -2042,31 +1783,31 @@ static void drawWristToPalmConnector(const Vec3& wristJointPos, const Vec3& palm
     float radius = 0.12f; // Connector radius
 
     glBegin(GL_TRIANGLES);
-
+    
     // Cylindrical sides connecting wrist to palm
     for (int i = 0; i < sides; i++) {
         int next = (i + 1) % sides;
-
+        
         float angle1 = i * angleStep;
         float angle2 = next * angleStep;
-
+        
         float x1 = cosf(angle1) * radius;
         float y1 = sinf(angle1) * radius;
         float x2 = cosf(angle2) * radius;
         float y2 = sinf(angle2) * radius;
-
+        
         // First triangle
         glNormal3f((x1 + x2) * 0.5f, (y1 + y2) * 0.5f, 0.0f);
         glTexCoord2f(0.0f, 0.0f); glVertex3f(wristJointPos.x + x1, wristJointPos.y + y1, wristJointPos.z);
         glTexCoord2f(1.0f, 0.0f); glVertex3f(wristJointPos.x + x2, wristJointPos.y + y2, wristJointPos.z);
         glTexCoord2f(1.0f, 1.0f); glVertex3f(palmBasePos.x + x2, palmBasePos.y + y2, palmBasePos.z);
-
+        
         // Second triangle
         glTexCoord2f(0.0f, 0.0f); glVertex3f(wristJointPos.x + x1, wristJointPos.y + y1, wristJointPos.z);
         glTexCoord2f(1.0f, 1.0f); glVertex3f(palmBasePos.x + x2, palmBasePos.y + y2, palmBasePos.z);
         glTexCoord2f(0.0f, 1.0f); glVertex3f(palmBasePos.x + x1, palmBasePos.y + y1, palmBasePos.z);
     }
-
+    
     glEnd();
 }
 
@@ -2081,15 +1822,15 @@ static void drawHandEdgeConnector() {
         glDisable(GL_TEXTURE_2D);
         glColor3f(0.85f, 0.64f, 0.52f); // Skin color
     }
-
+    
     // Draw connector segment from hand base backward to bridge any gap to wrist
     // This creates a seamless connection between the wrist extension and hand
     Vec3 handBase = { 0.0f, 0.0f, -0.1f };      // Hand base position (relative to hand coordinate system)
     Vec3 wristBridge = { 0.0f, -0.02f, -0.25f }; // Connect back toward wrist extension point
-
+    
     // Draw the bridging segment using the anatomical arm segment function for consistency
     drawAnatomicalArmSegment(wristBridge, handBase, 0.8f, 0.6f, 0.6f, 0.45f);
-
+    
     // Add a joint at the connection point for visual consistency
     drawRobotJoint(wristBridge, 0.12f);
 }
@@ -2886,7 +2627,6 @@ void setHandForm(std::vector<HandJoint>& joints, HandForm form) {
     }
 }
 
-
 void initializeKungFuSequences() {
     // Crane Style Sequence - Graceful, flowing like a crane with precise hand forms
     gCraneSequence[0] = { 45.0f, 90.0f, -30.0f, 0.0f, -20.0f, 20.0f, -30.0f, 0.0f, 0.0f, 0.0f, 0.0f,
@@ -2998,6 +2738,352 @@ void startKungFuAnimation(int style) {
     gKungFuAnimationPhase = 0;
 }
 
+// =============== SWORD ATTACK ANIMATION FUNCTIONS ===============
+
+void initializeSwordAttackSequences() {
+    // Initialize slash attack sequence (3 phases: windup, strike, recover)
+    // Phase 0: Windup - Warrior stance, sword raised back, body coiled like a spring
+    gSlashSequence[0] = {
+        -10.0f, 85.0f,     // leftShoulderPitch, rightShoulderPitch (right arm raised high)
+        -20.0f, -50.0f,    // leftShoulderYaw, rightShoulderYaw (right arm twisted back)
+        0.0f, 180.0f,      // leftShoulderRoll, rightShoulderRoll (right arm rotated)
+        0.0f, -35.0f,      // leftArmAngle, rightArmAngle
+        0.0f, 125.0f,      // leftElbowBend, rightElbowBend (right elbow bent)
+        -35.0f, -5.0f, 20.0f,  // torsoYaw, torsoPitch, torsoRoll (body coiled)
+        -50.0f, 0.0f, -35.0f,  // swordRotationX, Y, Z (sword pulled back)
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        -25.0f, 10.0f, 5.0f,   // headYaw, headPitch, headRoll (head tracking target)
+        -25.0f, 15.0f,         // leftLegAngle, rightLegAngle (stable stance)
+        -0.1f,                 // characterYOffset (slightly lowered, ready to spring)
+        -30.0f, 45.0f,         // leftWristPitch, rightWristPitch (sword grip)
+        1.2f                   // stanceWidth (wider warrior stance)
+    };
+    
+    // Phase 1: Strike - Explosive forward motion, warrior unleashing power
+    gSlashSequence[1] = {
+        -15.0f, 50.0f,     // Shoulder positions during strike
+        -5.0f, 50.0f,      // Arms coming forward with power
+        0.0f, 95.0f,       // Right arm rotation for maximum force
+        0.0f, 20.0f,       // Arms swinging with momentum
+        0.0f, 85.0f,       // Right elbow extending explosively
+        40.0f, 5.0f, -20.0f,   // Body following through with force
+        60.0f, 0.0f, 110.0f,   // Sword slashing horizontally with power
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        35.0f, -5.0f, -10.0f,  // headYaw, headPitch, headRoll (head following strike)
+        -15.0f, 25.0f,         // leftLegAngle, rightLegAngle (dynamic leg position)
+        0.05f,                 // characterYOffset (slight rise from power)
+        15.0f, 25.0f,          // leftWristPitch, rightWristPitch (follow-through)
+        1.1f                   // stanceWidth (maintaining balance)
+    };
+    
+    // Phase 2: Recover - Returning to guard position, ready for next attack
+    gSlashSequence[2] = {
+        5.0f, 35.0f,       // Arms lowering but staying alert
+        0.0f, 20.0f,       // Return to guard positions
+        0.0f, 60.0f,       // Right arm rotation reducing
+        0.0f, 10.0f,       // Arms returning to guard
+        0.0f, 45.0f,       // Right elbow in guard position
+        15.0f, 0.0f, -8.0f,    // Body returning to centered guard
+        30.0f, 0.0f, 45.0f,    // Sword in defensive position
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        10.0f, 5.0f, 0.0f,     // headYaw, headPitch, headRoll (alert scanning)
+        -10.0f, 10.0f,         // leftLegAngle, rightLegAngle (stable guard stance)
+        0.0f,                  // characterYOffset (neutral height)
+        -10.0f, 20.0f,         // leftWristPitch, rightWristPitch (ready grip)
+        1.0f                   // stanceWidth (normal stance)
+    };
+
+    // Initialize thrust attack sequence - Powerful forward lunge
+    // Phase 0: Windup - Low warrior stance, sword chambered for thrust
+    gThrustSequence[0] = {
+        75.0f, 75.0f,      // Both shoulders raised and ready
+        -15.0f, 15.0f,     // Arms positioned for two-handed grip
+        55.0f, 55.0f,      // Both arms rotated for power grip
+        -20.0f, -20.0f,    // Arms pulled back for maximum thrust
+        95.0f, 95.0f,      // Both elbows bent, coiled for action
+        0.0f, -15.0f, 0.0f,    // Body leaning back, loading spring
+        -35.0f, 0.0f, 0.0f,    // Sword chambered straight back
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        0.0f, 15.0f, 0.0f,     // headYaw, headPitch, headRoll (focused forward)
+        -30.0f, 20.0f,         // leftLegAngle, rightLegAngle (low lunge stance)
+        -0.15f,                // characterYOffset (lower for power)
+        -25.0f, -25.0f,        // leftWristPitch, rightWristPitch (firm grip)
+        1.4f                   // stanceWidth (wide power stance)
+    };
+    
+    // Phase 1: Strike - Explosive thrust with full body extension
+    gThrustSequence[1] = {
+        55.0f, 55.0f,      // Arms driving forward with force
+        0.0f, 0.0f,        // Arms aligned for maximum thrust
+        95.0f, 95.0f,      // Both arms maintaining rotation
+        35.0f, 35.0f,      // Arms extending with power
+        50.0f, 50.0f,      // Elbows extending explosively
+        0.0f, 15.0f, 0.0f,     // Body driving forward
+        15.0f, 0.0f, 0.0f,     // Sword thrusting forward
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        0.0f, 5.0f, 0.0f,      // headYaw, headPitch, headRoll (tracking thrust)
+        -20.0f, 35.0f,         // leftLegAngle, rightLegAngle (lunge extension)
+        0.1f,                  // characterYOffset (rising with thrust)
+        10.0f, 10.0f,          // leftWristPitch, rightWristPitch (thrust extension)
+        1.3f                   // stanceWidth (maintaining wide stance)
+    };
+    
+    // Phase 2: Recover - Pulling back to defensive guard position
+    gThrustSequence[2] = {
+        45.0f, 45.0f,      // Arms pulling back to guard
+        -5.0f, 5.0f,       // Slight defensive angle
+        70.0f, 70.0f,      // Arms rotating to guard position
+        10.0f, 10.0f,      // Arms in defensive position
+        65.0f, 65.0f,      // Elbows bent in guard
+        0.0f, 0.0f, 0.0f,      // Body returning to neutral
+        -10.0f, 0.0f, 0.0f,    // Sword in guard position
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        0.0f, 8.0f, 0.0f,      // headYaw, headPitch, headRoll (alert guard)
+        -15.0f, 15.0f,         // leftLegAngle, rightLegAngle (balanced stance)
+        0.0f,                  // characterYOffset (neutral height)
+        -5.0f, -5.0f,          // leftWristPitch, rightWristPitch (guard grip)
+        1.1f                   // stanceWidth (stable guard stance)
+    };
+
+    // Initialize combo attack sequence (6 phases for complex warrior combo)
+    // Phase 0: Initial windup (enhanced slash start)
+    gComboSequence[0] = gSlashSequence[0];  // Start like slash
+    // Phase 1: First strike (horizontal slash)
+    gComboSequence[1] = gSlashSequence[1];
+    // Phase 2: Transition to thrust (flow into thrust position)
+    gComboSequence[2] = gThrustSequence[0];
+    // Phase 3: Thrust strike
+    gComboSequence[3] = gThrustSequence[1];
+    // Phase 4: Spin/overhead preparation - Dramatic warrior flourish
+    gComboSequence[4] = {
+        95.0f, 95.0f,      // Both arms raised high overhead
+        0.0f, 0.0f,        // Arms straight up for maximum reach
+        190.0f, 190.0f,    // Full rotation for power
+        0.0f, 0.0f,        // Straight alignment
+        130.0f, 130.0f,    // High elbow bend for control
+        0.0f, -8.0f, 0.0f,     // Body leaning back for overhead strike
+        -100.0f, 0.0f, 0.0f,   // Sword raised high overhead
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        0.0f, 25.0f, 0.0f,     // headYaw, headPitch, headRoll (looking up at sword)
+        -35.0f, 25.0f,         // leftLegAngle, rightLegAngle (dramatic stance)
+        0.15f,                 // characterYOffset (rising with power)
+        -35.0f, -35.0f,        // leftWristPitch, rightWristPitch (overhead grip)
+        1.3f                   // stanceWidth (wide for stability)
+    };
+    // Phase 5: Final devastating overhead strike
+    gComboSequence[5] = {
+        50.0f, 50.0f,      // Arms driving down with tremendous force
+        0.0f, 0.0f,        // Straight alignment for power
+        100.0f, 100.0f,    // Rotation for maximum impact
+        50.0f, 50.0f,      // Forward driving motion
+        70.0f, 70.0f,      // Extending for reach and power
+        0.0f, 20.0f, 0.0f,     // Body driving forward with strike
+        120.0f, 0.0f, 0.0f,    // Sword crashing down
+        HAND_GRIP_SWORD,
+        // Enhanced warrior elements
+        0.0f, -10.0f, 0.0f,    // headYaw, headPitch, headRoll (following strike down)
+        -25.0f, 40.0f,         // leftLegAngle, rightLegAngle (power lunge)
+        -0.05f,                // characterYOffset (slight crouch from impact)
+        25.0f, 25.0f,          // leftWristPitch, rightWristPitch (follow-through)
+        1.2f                   // stanceWidth (stable impact stance)
+    };
+}
+
+// Linear interpolation between two sword attack poses
+SwordAttackPose lerpSwordPose(const SwordAttackPose& from, const SwordAttackPose& to, float t) {
+    SwordAttackPose result;
+    result.leftShoulderPitch = lerpf(from.leftShoulderPitch, to.leftShoulderPitch, t);
+    result.rightShoulderPitch = lerpf(from.rightShoulderPitch, to.rightShoulderPitch, t);
+    result.leftShoulderYaw = lerpf(from.leftShoulderYaw, to.leftShoulderYaw, t);
+    result.rightShoulderYaw = lerpf(from.rightShoulderYaw, to.rightShoulderYaw, t);
+    result.leftShoulderRoll = lerpf(from.leftShoulderRoll, to.leftShoulderRoll, t);
+    result.rightShoulderRoll = lerpf(from.rightShoulderRoll, to.rightShoulderRoll, t);
+    result.leftArmAngle = lerpf(from.leftArmAngle, to.leftArmAngle, t);
+    result.rightArmAngle = lerpf(from.rightArmAngle, to.rightArmAngle, t);
+    result.leftElbowBend = lerpf(from.leftElbowBend, to.leftElbowBend, t);
+    result.rightElbowBend = lerpf(from.rightElbowBend, to.rightElbowBend, t);
+    result.torsoYaw = lerpf(from.torsoYaw, to.torsoYaw, t);
+    result.torsoPitch = lerpf(from.torsoPitch, to.torsoPitch, t);
+    result.torsoRoll = lerpf(from.torsoRoll, to.torsoRoll, t);
+    result.swordRotationX = lerpf(from.swordRotationX, to.swordRotationX, t);
+    result.swordRotationY = lerpf(from.swordRotationY, to.swordRotationY, t);
+    result.swordRotationZ = lerpf(from.swordRotationZ, to.swordRotationZ, t);
+    result.swordHandForm = to.swordHandForm; // No interpolation for hand form
+    
+    // Enhanced warrior elements interpolation
+    result.headYaw = lerpf(from.headYaw, to.headYaw, t);
+    result.headPitch = lerpf(from.headPitch, to.headPitch, t);
+    result.headRoll = lerpf(from.headRoll, to.headRoll, t);
+    result.leftLegAngle = lerpf(from.leftLegAngle, to.leftLegAngle, t);
+    result.rightLegAngle = lerpf(from.rightLegAngle, to.rightLegAngle, t);
+    result.characterYOffset = lerpf(from.characterYOffset, to.characterYOffset, t);
+    result.leftWristPitch = lerpf(from.leftWristPitch, to.leftWristPitch, t);
+    result.rightWristPitch = lerpf(from.rightWristPitch, to.rightWristPitch, t);
+    result.stanceWidth = lerpf(from.stanceWidth, to.stanceWidth, t);
+    
+    return result;
+}
+
+// Update sword attack animation
+void updateSwordAttackAnimation(float deltaTime) {
+    if (!gSwordAttackActive) return;
+    
+    gSwordAttackTime += deltaTime * SWORD_ATTACK_SPEED;
+    
+    int totalPhases;
+    SwordAttackPose* currentSequence;
+    
+    // Determine which sequence and total phases based on attack type
+    switch (gSwordAttackType) {
+        case 0: totalPhases = 3; currentSequence = gSlashSequence; break;  // Slash
+        case 1: totalPhases = 3; currentSequence = gThrustSequence; break; // Thrust
+        case 2: totalPhases = 6; currentSequence = gComboSequence; break;  // Combo
+        default: totalPhases = 3; currentSequence = gSlashSequence; break;
+    }
+    
+    float phaseDuration = SWORD_ATTACK_DURATION / totalPhases;
+    float currentPhaseTime = fmod(gSwordAttackTime, phaseDuration);
+    float phaseProgress = currentPhaseTime / phaseDuration;
+    
+    // Determine current phase
+    gSwordAttackPhase = (int)(gSwordAttackTime / phaseDuration);
+    
+    if (gSwordAttackPhase >= totalPhases) {
+        // Animation complete
+        gSwordAttackActive = false;
+        gSwordAttackTime = 0.0f;
+        gSwordAttackPhase = 0;
+        
+        // Reset to neutral pose
+        gCurrentSwordPose = {};
+        gTargetSwordPose = {};
+        gSwordAttackRotationX = 0.0f;
+        gSwordAttackRotationY = 0.0f;
+        gSwordAttackRotationZ = 0.0f;
+        return;
+    }
+    
+    // Interpolate between current and next pose
+    int nextPhase = gSwordAttackPhase + 1;
+    if (nextPhase >= totalPhases) nextPhase = totalPhases - 1;
+    
+    gCurrentSwordPose = lerpSwordPose(currentSequence[gSwordAttackPhase], 
+                                      currentSequence[nextPhase], 
+                                      smoothStep(phaseProgress));
+    
+    // Update global sword rotation
+    gSwordAttackRotationX = gCurrentSwordPose.swordRotationX;
+    gSwordAttackRotationY = gCurrentSwordPose.swordRotationY;
+    gSwordAttackRotationZ = gCurrentSwordPose.swordRotationZ;
+    
+    // Update global warrior pose elements
+    gCurrentWarriorHeadYaw = gCurrentSwordPose.headYaw;
+    gCurrentWarriorHeadPitch = gCurrentSwordPose.headPitch;
+    gCurrentWarriorHeadRoll = gCurrentSwordPose.headRoll;
+    gCurrentWarriorLegLeft = gCurrentSwordPose.leftLegAngle;
+    gCurrentWarriorLegRight = gCurrentSwordPose.rightLegAngle;
+    gCurrentWarriorYOffset = gCurrentSwordPose.characterYOffset;
+    gCurrentWarriorStanceWidth = gCurrentSwordPose.stanceWidth;
+}
+
+// Start a sword attack animation
+void startSwordAttack(int attackType) {
+    if (!gSwordVisible) return; // Can only attack when sword is visible
+    
+    gSwordAttackType = attackType;
+    gSwordAttackActive = true;
+    gSwordAttackTime = 0.0f;
+    gSwordAttackPhase = 0;
+    
+    // Initialize poses based on attack type
+    switch (attackType) {
+        case 0: gCurrentSwordPose = gSlashSequence[0]; break;  // Slash
+        case 1: gCurrentSwordPose = gThrustSequence[0]; break; // Thrust
+        case 2: gCurrentSwordPose = gComboSequence[0]; break;  // Combo
+    }
+}
+
+// --- Skirt Drawing ---
+void drawSkirt(float leftLegAngle, float rightLegAngle) {
+    const float topR = R8 + 0.11f;
+    const float topY = Y8 - 0.51f;
+    const float botR = 0.65f;  // Reduced from 0.82f for shorter skirt
+    const float botY = -0.8f;  // Raised from -1.7f for shorter length
+    float deltaY = topY - botY;
+    float deltaR = botR - topR;
+
+    // You can still adjust this strength value
+    float front_strength = 1.5f;
+    float back_strength = 2.5f; // Adjusted this for the new logic
+
+    glColor3f(0.2f, 0.4f, 0.8f);
+    glBegin(GL_TRIANGLES);
+
+    for (int i = 0; i < 32; ++i) {
+        // --- Calculate interpolated vertex A ---
+        int idx_A0 = i / 2;
+        int idx_A1 = (idx_A0 + 1) % 16;
+        float interp_A = (i % 2) * 0.5f;
+        float cA = segCos[idx_A0] * (1.0f - interp_A) + segCos[idx_A1] * interp_A;
+        float sA = segSin[idx_A0] * (1.0f - interp_A) + segSin[idx_A1] * interp_A;
+
+        // --- Calculate interpolated vertex B ---
+        int next_i = (i + 1) % 32;
+        int idx_B0 = next_i / 2;
+        int idx_B1 = (idx_B0 + 1) % 16;
+        float interp_B = (next_i % 2) * 0.5f;
+        float cB = segCos[idx_B0] * (1.0f - interp_B) + segCos[idx_B1] * interp_B;
+        float sB = segSin[idx_B0] * (1.0f - interp_B) + segSin[idx_B1] * interp_B;
+
+        Vec3f v_top_A = { topR * cA, topY, topR * sA };
+        Vec3f v_bot_A = { botR * cA, botY, botR * sA };
+        Vec3f v_top_B = { topR * cB, topY, topR * sB };
+        Vec3f v_bot_B = { botR * cB, botY, botR * sB };
+
+        // --- MODIFIED DEFORMATION LOGIC ---
+        float angleA = (v_bot_A.x <= 0) ? leftLegAngle : rightLegAngle;
+        if (angleA > 0) { // Leg is swinging forward
+            float front_weight = (sA > 0.0f) ? sA : 0.0f; // Weight is 1 at front, 0 at sides
+            v_bot_A.z += sin(angleA * PI / 180.0f) * front_strength * front_weight;
+        }
+        else { // Leg is swinging backward
+            float back_weight = (-sA > 0.0f) ? -sA : 0.0f; // Weight is 1 at back, 0 at sides
+            v_bot_A.z += sin(angleA * PI / 180.0f) * back_strength * back_weight;
+        }
+
+        float angleB = (v_bot_B.x <= 0) ? leftLegAngle : rightLegAngle;
+        if (angleB > 0) { // Leg is swinging forward
+            float front_weight = (sB > 0.0f) ? sB : 0.0f;
+            v_bot_B.z += sin(angleB * PI / 180.0f) * front_strength * front_weight;
+        }
+        else { // Leg is swinging backward
+            float back_weight = (-sB > 0.0f) ? -sB : 0.0f;
+            v_bot_B.z += sin(angleB * PI / 180.0f) * back_strength * back_weight;
+        }
+
+        // --- End of modification ---
+
+        Vec3f nA = normalize({ deltaY * cA, deltaR, deltaY * sA });
+        Vec3f nB = normalize({ deltaY * cB, deltaR, deltaY * sB });
+
+        glNormal3f(nA.x, nA.y, nA.z); glVertex3f(v_top_A.x, v_top_A.y, v_top_A.z);
+        glNormal3f(nA.x, nA.y, nA.z); glVertex3f(v_bot_A.x, v_bot_A.y, v_bot_A.z);
+        glNormal3f(nB.x, nB.y, nB.z); glVertex3f(v_bot_B.x, v_bot_B.y, v_bot_B.z);
+
+        glNormal3f(nA.x, nA.y, nA.z); glVertex3f(v_top_A.x, v_top_A.y, v_top_A.z);
+        glNormal3f(nB.x, nB.y, nB.z); glVertex3f(v_bot_B.x, v_bot_B.y, v_bot_B.z);
+        glNormal3f(nB.x, nB.y, nB.z); glVertex3f(v_top_B.x, v_top_B.y, v_top_B.z);
+    }
+    glEnd();
+}
+
 // --------------------- Animation and Drawing from leg.cpp ---------------------
 void animateLegVertices(float hipAngle, float kneeAngle, bool mirror) {
     if (gAnimatedVertices.size() != gAllVertices.size()) {
@@ -3055,41 +3141,27 @@ void animateLegVertices(float hipAngle, float kneeAngle, bool mirror) {
     }
 }
 
-void drawLeg() {
-    // Set material/texture based on the current render mode
-    if (gRenderMode == RM_TEXTURED) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Skin]);
-        glColor3f(1.0f, 1.0f, 1.0f);
-    }
-    else {
-        glDisable(GL_TEXTURE_2D);
-        glColor3f(0.9f, 0.7f, 0.6f); // Solid/wireframe skin color
-    }
-
+void drawLeg()
+{
     glBegin(GL_TRIANGLES);
-    for (const auto& t : gTris) {
-        auto emit = [&](int vertexIndex) {
-            const Vec2f& uv = gTexCoords[vertexIndex];
-            const Vec3f& n = gAnimatedNormals[vertexIndex];
-            const Vec3f& v = gAnimatedVertices[vertexIndex];
+    for (const auto& t : gTris)
+    {
+        const Vec3f& n0 = gAnimatedNormals[t.a];
+        const Vec3f& v0 = gAnimatedVertices[t.a];
+        glNormal3f(n0.x, n0.y, n0.z);
+        glVertex3f(v0.x, v0.y, v0.z);
 
-            glNormal3f(n.x, n.y, n.z);
-            if (gRenderMode == RM_TEXTURED) {
-                // Flip V-coordinate for BMPs which are often stored upside down
-                glTexCoord2f(uv.u, 1.0f - uv.v);
-            }
-            glVertex3f(v.x, v.y, v.z);
-            };
-        emit(t.a);
-        emit(t.b);
-        emit(t.c);
+        const Vec3f& n1 = gAnimatedNormals[t.b];
+        const Vec3f& v1 = gAnimatedVertices[t.b];
+        glNormal3f(n1.x, n1.y, n1.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+
+        const Vec3f& n2 = gAnimatedNormals[t.c];
+        const Vec3f& v2 = gAnimatedVertices[t.c];
+        glNormal3f(n2.x, n2.y, n2.z);
+        glVertex3f(v2.x, v2.y, v2.z);
     }
     glEnd();
-
-    if (gRenderMode == RM_TEXTURED) {
-        Tex::unbind();
-    }
 }
 
 // --- Body and Head Drawing ---
@@ -3274,47 +3346,38 @@ void drawMulanMouth() {
     glPopMatrix(); // End mouth scaling
 }
 
-// [MODIFY] Make texturing conditional & self-contained.
-//          Use hair.bmp with object-linear texgen; provide solid fallback when textures are off.
-//          Keep your geometry (cap + bob + bangs).
-
 void drawMulanHair() {
     const float headR = HEAD_RADIUS;
-    const int   segments = 32;
+    const int segments = 32;
 
+    // Apply hair scaling for volume
     glPushMatrix();
-    // [KEEP] local volume tweak around the head origin (head is already positioned by caller)
-    glTranslatef(0.0f, headR * 0.5f, 0.0f);
-    glScalef(HAIR_SCALE, HAIR_SCALE, HAIR_SCALE);
-    glTranslatef(0.0f, -headR * 0.5f, 0.0f);
+    glTranslatef(0.0f, headR * 0.5f, 0.0f); // Move to hair center
+    glScalef(HAIR_SCALE, HAIR_SCALE, HAIR_SCALE); // Scale hair volume
+    glTranslatef(0.0f, -headR * 0.5f, 0.0f); // Move back
 
-    // [ADD] Texture state (hair.bmp) with object-linear mapping
-    bool usingTexture = (gRenderMode == RM_TEXTURED) || g_TextureEnabled;
-    if (usingTexture) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Hair]);     // hair.bmp
-        Tex::enableObjectLinearST(0.45f, 0.45f, 0.45f);
-        glColor3f(1, 1, 1);
-    }
-    else {
-        glDisable(GL_TEXTURE_2D);
-        glColor3f(0.07f, 0.07f, 0.07f);    // dark hair fallback
-    }
+    glColor3f(0.05f, 0.05f, 0.1f); // Dark black hair
 
     // --- Part 1: Voluminous Hair Cap ---
+    // A slightly larger cap to give the hair body.
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < segments; i++) {
         float angle1 = (float)i / segments * 2.0f * PI;
         float angle2 = (float)(i + 1) / segments * 2.0f * PI;
 
-        float capRadius = headR * 1.15f;
-        float x1 = capRadius * cosf(angle1), z1 = capRadius * sinf(angle1);
-        float x2 = capRadius * cosf(angle2), z2 = capRadius * sinf(angle2);
+        float capRadius = headR * 1.15f; // Increased to avoid clipping
+        float x1 = capRadius * cos(angle1);
+        float z1 = capRadius * sin(angle1);
+        float x2 = capRadius * cos(angle2);
+        float z2 = capRadius * sin(angle2);
 
-        Vec3f top_center = { 0.0f, headR * 1.25f, 0.0f };
-        Vec3f edge_v1 = { x1,   headR * 0.75f, z1 };
-        Vec3f edge_v2 = { x2,   headR * 0.75f, z2 };
+        // A high center point for volume
+        Vec3f top_center = { 0.0f, headR * 1.25f, 0.0f }; // Slightly higher
+        // The edge of the cap - positioned outward from head surface
+        Vec3f edge_v1 = { x1, headR * 0.75f, z1 };
+        Vec3f edge_v2 = { x2, headR * 0.75f, z2 };
 
+        // Normal for the triangle
         Vec3f n = normalize(cross(sub(edge_v1, top_center), sub(edge_v2, top_center)));
         glNormal3f(n.x, n.y, n.z);
 
@@ -3325,34 +3388,44 @@ void drawMulanHair() {
     glEnd();
 
     // --- Part 2: Main Bob Shape (Sides & Back) ---
+    // Chin-length hair with an inward curve.
     glBegin(GL_QUADS);
     for (int i = 0; i < segments; i++) {
         float angle1 = (float)i / segments * 2.0f * PI;
         float angle2 = (float)(i + 1) / segments * 2.0f * PI;
 
-        // [KEEP] Leave space for bangs
-        if (sinf(angle1) > 0.3f && fabsf(cosf(angle1)) < 0.8f) continue;
+        // Skip the very front to leave space for bangs
+        if (sin(angle1) > 0.3f && fabsf(cos(angle1)) < 0.8f) {
+            continue;
+        }
 
-        float topRadius = headR * 1.15f;
+        // Top of the strand - positioned outward from head
+        float topRadius = headR * 1.15f; // Increased to clear head surface
         float topY = headR * 0.75f;
-        float x1_top = topRadius * cosf(angle1), z1_top = topRadius * sinf(angle1);
-        float x2_top = topRadius * cosf(angle2), z2_top = topRadius * sinf(angle2);
+        float x1_top = topRadius * cos(angle1);
+        float z1_top = topRadius * sin(angle1);
+        float x2_top = topRadius * cos(angle2);
+        float z2_top = topRadius * sin(angle2);
 
-        float bottomRadius = headR * 0.95f;
-        float bottomY = -headR * 0.5f;
+        // Bottom of the strand with different lengths
+        float bottomRadius = headR * 0.95f; // Less inward curve to avoid clipping
+        float bottomY = -headR * 0.5f; // Default chin-length
 
-        // [KEEP] short sides, long back
-        if (fabsf(cosf(angle1)) > 0.5f) {
-            bottomY = headR * 0.1f;
-            bottomRadius = headR * 1.25f;
+        // Make sides very short (undercut style)
+        if (fabsf(cos(angle1)) > 0.5f) { // Left and right sides
+            bottomY = headR * 0.1f; // Very short - just below ear level
+            bottomRadius = headR * 1.25f; // Keep close to head
         }
-        else if (sinf(angle1) < -0.3f) {
-            bottomY = -headR * 1.0f;
-            bottomRadius = headR * 1.25f;
+        // Make back much longer (shoulder-length)
+        else if (sin(angle1) < -0.3) { // Back of the head
+            bottomY = -headR * 1.0f; // Much longer back - shoulder length
+            bottomRadius = headR * 1.25f; // Less aggressive inward curve for longer hair
         }
 
-        float x1_bot = bottomRadius * cosf(angle1), z1_bot = bottomRadius * sinf(angle1);
-        float x2_bot = bottomRadius * cosf(angle2), z2_bot = bottomRadius * sinf(angle2);
+        float x1_bot = bottomRadius * cos(angle1);
+        float z1_bot = bottomRadius * sin(angle1);
+        float x2_bot = bottomRadius * cos(angle2);
+        float z2_bot = bottomRadius * sin(angle2);
 
         Vec3f v_top1 = { x1_top, topY, z1_top };
         Vec3f v_top2 = { x2_top, topY, z2_top };
@@ -3370,21 +3443,32 @@ void drawMulanHair() {
     glEnd();
 
     // --- Part 3: French Fringe (Bangs) ---
+    // Straight-cut bangs across the forehead.
     glBegin(GL_QUADS);
     for (int i = 0; i < segments; i++) {
         float angle1 = (float)i / segments * 2.0f * PI;
         float angle2 = (float)(i + 1) / segments * 2.0f * PI;
 
-        // [KEEP] Straight front bangs
-        if (sinf(angle1) < 0.4f || fabsf(cosf(angle1)) > 0.6f) continue;
+        // Only draw bangs in the front center section - no side bangs
+        if (sin(angle1) < 0.4f || fabsf(cos(angle1)) > 0.6f) {
+            continue;
+        }
 
-        float topRadius = headR * 1.15f, topY = headR * 0.8f;
-        float x1_top = topRadius * cosf(angle1), z1_top = topRadius * sinf(angle1);
-        float x2_top = topRadius * cosf(angle2), z2_top = topRadius * sinf(angle2);
+        // Top of bangs - positioned outward from head
+        float topRadius = headR * 1.15f; // Increased to clear head surface
+        float topY = headR * 0.8f;
+        float x1_top = topRadius * cos(angle1);
+        float z1_top = topRadius * sin(angle1);
+        float x2_top = topRadius * cos(angle2);
+        float z2_top = topRadius * sin(angle2);
 
-        float bottomRadius = headR * 1.08f, bottomY = headR * 0.3f; // ~eyebrow
-        float x1_bot = bottomRadius * cosf(angle1), z1_bot = bottomRadius * sinf(angle1);
-        float x2_bot = bottomRadius * cosf(angle2), z2_bot = bottomRadius * sinf(angle2);
+        // Bottom of bangs (just above eyebrows)
+        float bottomRadius = headR * 1.08f; // Slightly outward to avoid clipping
+        float bottomY = headR * 0.3f; // Eyebrow level is browY = headR * 0.32f
+        float x1_bot = bottomRadius * cos(angle1);
+        float z1_bot = bottomRadius * sin(angle1);
+        float x2_bot = bottomRadius * cos(angle2);
+        float z2_bot = bottomRadius * sin(angle2);
 
         Vec3f v_top1 = { x1_top, topY, z1_top };
         Vec3f v_top2 = { x2_top, topY, z2_top };
@@ -3401,15 +3485,8 @@ void drawMulanHair() {
     }
     glEnd();
 
-    // [ADD] Cleanup only what we enabled here
-    if (usingTexture) {
-        Tex::disableObjectLinearST();
-        Tex::unbind();
-    }
-
-    glPopMatrix();
+    glPopMatrix(); // End hair scaling
 }
-
 
 void drawMulanFace() {
     drawMulanHair();
@@ -3418,9 +3495,8 @@ void drawMulanFace() {
     drawMulanNose();
     drawMulanMouth();
 }
-// [MODIFY] Geometry kept; relies on object-linear texgen when textured.
-//          No explicit glTexCoord* calls are needed; normals kept for lighting.
 
+// Draw custom U-shaped face geometry
 void drawCustomFaceShape() {
     // Define face parameters - much larger to match original sphere size
     const float faceWidth = HEAD_RADIUS * 1.1f;
@@ -3552,218 +3628,185 @@ void drawCustomFaceShape() {
     glEnd();
 }
 
-
-void drawMulanHead()
-{
-    if (!g_headQuadric) {
-        g_headQuadric = gluNewQuadric();
-        gluQuadricNormals(g_headQuadric, GLU_SMOOTH);
-        gluQuadricTexture(g_headQuadric, GL_TRUE);
-    }
-
+void drawMulanHead() {
     glPushMatrix();
 
-    if (gRenderMode == RM_TEXTURED) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Skin]);                 // skin.bmp
-        glColor3f(1.0f, 1.0f, 1.0f);                   // show the texture’s color
-        // Use object-linear S/T/R so we don’t need to emit texcoords for the custom mesh
-        Tex::enableObjectLinearST(0.35f, 0.35f, 0.35f);
-    }
-    else {
-        glDisable(GL_TEXTURE_2D);
-        glColor3f(0.92f, 0.76f, 0.65f);
-    }
+    // Position head to sit directly on top of neck sphere at Y19 level
+    // Head bottom should overlap with neck top for seamless connection
+    glTranslatef(0.0f, Y19 + HEAD_RADIUS * 0.6f, 0.0f); // Reduced offset for better overlap
 
+    // Mulan's skin tone (East Asian complexion)
+    glColor3f(0.92f, 0.76f, 0.65f);
+
+    // Draw custom U-shaped face instead of sphere
     drawCustomFaceShape();
 
-    {
-        const float faceWidth = HEAD_RADIUS * 1.1f;
-        const float faceHeight = HEAD_RADIUS * 1.4f;
-        const float faceDepth = HEAD_RADIUS * 0.9f;
-        const int   segments = HEAD_SEGMENTS;
+    // Add head bottom cap to seal connection with neck
+    const float headBottomRadius = HEAD_RADIUS * 0.3f; // Smaller radius for neck connection
+    const float headBottomY = -HEAD_RADIUS * 0.7f; // Bottom of head
 
-        const float bottomY = -faceHeight * 0.5f;
-        const float jawScale = JAW_WIDTH_MIN; // narrow chin
-        const float radX = faceWidth * jawScale;
-        const float radZ = faceDepth * 0.6f;
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < TORSO_SEGMENTS; i++) {
+        float angle1 = (float)i / TORSO_SEGMENTS * 2.0f * PI;
+        float angle2 = (float)(i + 1) / TORSO_SEGMENTS * 2.0f * PI;
 
-        glBegin(GL_TRIANGLES);
-        for (int i = 0; i < segments; ++i) {
-            float a0 = (float)i / segments * 2.0f * PI;
-            float a1 = (float)(i + 1) / segments * 2.0f * PI;
+        // Create smooth bottom surface
+        Vec3f center = { 0.0f, headBottomY, 0.0f };
+        Vec3f v1 = { headBottomRadius * cos(angle1), headBottomY, headBottomRadius * sin(angle1) };
+        Vec3f v2 = { headBottomRadius * cos(angle2), headBottomY, headBottomRadius * sin(angle2) };
 
-            Vec3f c{ 0.0f, bottomY, 0.0f };
-            Vec3f v0{ radX * cosf(a0), bottomY, radZ * sinf(a0) };
-            Vec3f v1{ radX * cosf(a1), bottomY, radZ * sinf(a1) };
+        // Normal pointing downward (since this is the bottom of head)
+        glNormal3f(0, -1, 0);
 
-            glNormal3f(0, -1, 0);
-            // Winding: from below we want CW, so emit center -> v1 -> v0
-            glVertex3f(c.x, c.y, c.z);
-            glVertex3f(v1.x, v1.y, v1.z);
-            glVertex3f(v0.x, v0.y, v0.z);
-        }
-        glEnd();
+        // Triangle: center -> v2 -> v1 (clockwise from below for correct winding)
+        glVertex3f(center.x, center.y, center.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+        glVertex3f(v1.x, v1.y, v1.z);
     }
+    glEnd();
 
+    // Draw detailed facial features
     drawMulanFace();
-
-    // [ADD] Clean up the texture/gen if we used them
-    if (gRenderMode == RM_TEXTURED) {
-        Tex::disableObjectLinearST();
-        Tex::unbind();
-    }
 
     glPopMatrix();
 }
-
 void drawTorso() {
+    glColor3f(0.2f, 0.4f, 0.8f);
     glShadeModel(GL_SMOOTH);
+    glBegin(GL_TRIANGLES);
+    // CORRECTED: Pass segCos and segSin to the function
+    drawCurvedBand(R0, Y0, R1, Y1, segCos, segSin);
+    drawCurvedBand(R1, Y1, R2, Y2, segCos, segSin);
+    drawCurvedBand(R2, Y2, R3, Y3, segCos, segSin);
+    drawCurvedBand(R3, Y3, R4, Y4, segCos, segSin);
+    drawCurvedBand(R4, Y4, R5, Y5, segCos, segSin);
+    drawCurvedBand(R5, Y5, R6, Y6, segCos, segSin);
+    drawCurvedBand(R6, Y6, R7, Y7, segCos, segSin);
+    drawCurvedBand(R7, Y7, R8, Y8, segCos, segSin);
+    drawCurvedBand(R8, Y8, R9, Y9, segCos, segSin);
+    drawCurvedBand(R9, Y9, R10, Y10, segCos, segSin);
+    drawCurvedBand(R10, Y10, R11, Y11, segCos, segSin);
+    drawCurvedBand(R11, Y11, R12, Y12, segCos, segSin);
+    drawCurvedBand(R12, Y12, R13, Y13, segCos, segSin);
+    drawCurvedBand(R13, Y13, R14, Y14, segCos, segSin);
+    drawCurvedBand(R14, Y14, R15, Y15, segCos, segSin);
+    drawCurvedBand(R15, Y15, R16, Y16, segCos, segSin);
+    glEnd();
 
-    // ===== Main torso (skirt/cloth) =====
-    {
-        setSolidColorIfNeeded(0.2f, 0.4f, 0.8f);            // SOLID / WIREFRAME color
-        TextureScope ts(Tex::id[Tex::Skirt], /*useTexGen*/true, 0.5f, 0.5f, 1.0f);
+    // Add bottom cap to close the torso (prevent seeing through from below)
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < 16; ++i) {
+        float cA = segCos[i];
+        float sA = segSin[i];
+        float cB = segCos[(i + 1) % 16];
+        float sB = segSin[(i + 1) % 16];
 
-        glBegin(GL_TRIANGLES);
-        drawCurvedBand(R0, Y0, R1, Y1, segCos, segSin);
-        drawCurvedBand(R1, Y1, R2, Y2, segCos, segSin);
-        drawCurvedBand(R2, Y2, R3, Y3, segCos, segSin);
-        drawCurvedBand(R3, Y3, R4, Y4, segCos, segSin);
-        drawCurvedBand(R4, Y4, R5, Y5, segCos, segSin);
-        drawCurvedBand(R5, Y5, R6, Y6, segCos, segSin);
-        drawCurvedBand(R6, Y6, R7, Y7, segCos, segSin);
-        drawCurvedBand(R7, Y7, R8, Y8, segCos, segSin);
-        drawCurvedBand(R8, Y8, R9, Y9, segCos, segSin);
-        drawCurvedBand(R9, Y9, R10, Y10, segCos, segSin);
-        drawCurvedBand(R10, Y10, R11, Y11, segCos, segSin);
-        drawCurvedBand(R11, Y11, R12, Y12, segCos, segSin);
-        drawCurvedBand(R12, Y12, R13, Y13, segCos, segSin);
-        drawCurvedBand(R13, Y13, R14, Y14, segCos, segSin);
-        drawCurvedBand(R14, Y14, R15, Y15, segCos, segSin);
-        drawCurvedBand(R15, Y15, R16, Y16, segCos, segSin);
-        glEnd();
+        // Create bottom surface at Y0 level with R0 radius
+        Vec3f center = { 0.0f, Y0, 0.0f };
+        Vec3f v1 = { R0 * cA, Y0, R0 * sA };
+        Vec3f v2 = { R0 * cB, Y0, R0 * sB };
+
+        // Apply same curvature as torso
+        if (sA < 0) v1.z *= 0.5f; // Back curvature
+        if (sB < 0) v2.z *= 0.5f; // Back curvature
+
+        // Normal pointing downward (since this is the bottom)
+        glNormal3f(0, -1, 0);
+
+        // Triangle: center -> v1 -> v2 (clockwise from below)
+        glVertex3f(center.x, center.y, center.z);
+        glVertex3f(v2.x, v2.y, v2.z); // Reversed order for correct winding
+        glVertex3f(v1.x, v1.y, v1.z);
     }
+    glEnd();
 
-    // Bottom cap (usually hidden) – keep simple, untextured is fine
-    {
-        setSolidColorIfNeeded(0.2f, 0.4f, 0.8f);
-        glBegin(GL_TRIANGLES);
-        const int N = TORSO_SEGMENTS;     // use your ring resolution (not hardcoded 16)
-        for (int i = 0; i < N; ++i) {
-            float cA = segCos[i], sA = segSin[i];
-            float cB = segCos[(i + 1) % N], sB = segSin[(i + 1) % N];
+    glShadeModel(GL_FLAT); // Reset to default shading
 
-            Vec3f center = { 0.0f, Y0, 0.0f };
-            Vec3f v1 = { R0 * cA, Y0, R0 * sA };
-            Vec3f v2 = { R0 * cB, Y0, R0 * sB };
+    // Draw skin areas (shoulder slope and neck) with smooth shading - feminine curves
+    // All bands are automatically centered on torso middle (X=0, Z=0)
+    glColor3f(0.9f, 0.7f, 0.6f);
+    glShadeModel(GL_SMOOTH); // Smooth shading for seamless shoulder-neck transition
+    glBegin(GL_TRIANGLES);
+    drawCurvedBand(R16, Y16, R17, Y17, segCos, segSin); // Upper shoulder slope - elegant feminine curve
+    drawCurvedBand(R17, Y17, R18, Y18, segCos, segSin); // Lower shoulder slope to neck base
+    drawCurvedBand(R18, Y18, R19, Y19, segCos, segSin); // Neck - slim and graceful, centered on torso
+    glEnd();
 
-            if (sA < 0) v1.z *= 0.5f; // your back curvature tweak
-            if (sB < 0) v2.z *= 0.5f;
+    // Add neck top cap to close the neck (smooth transition to head)
+    glBegin(GL_TRIANGLES);
+    for (int i = 0; i < TORSO_SEGMENTS; ++i) {
+        float cA = segCos[i];
+        float sA = segSin[i];
+        float cB = segCos[(i + 1) % TORSO_SEGMENTS];
+        float sB = segSin[(i + 1) % TORSO_SEGMENTS];
 
-            glNormal3f(0, -1, 0);
-            glVertex3f(center.x, center.y, center.z);
-            glVertex3f(v2.x, v2.y, v2.z);
-            glVertex3f(v1.x, v1.y, v1.z);
-        }
-        glEnd();
+        // Create top surface at Y19 level with R19 radius
+        Vec3f center = { 0.0f, Y19, 0.0f };
+        Vec3f v1 = { R19 * cA, Y19, R19 * sA };
+        Vec3f v2 = { R19 * cB, Y19, R19 * sB };
+
+        // Normal pointing upward (since this is the top of neck)
+        glNormal3f(0, 1, 0);
+
+        // Triangle: center -> v1 -> v2 (counter-clockwise from above)
+        glVertex3f(center.x, center.y, center.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
     }
+    glEnd();
 
-    // ===== Shoulder + neck bands (skin) =====
-    {
-        setSolidColorIfNeeded(0.9f, 0.7f, 0.6f);           // SOLID / WIREFRAME skin color
-        TextureScope ts(Tex::id[Tex::Skin], /*useTexGen*/true, 0.5f, 0.5f, 1.0f);
+    glShadeModel(GL_FLAT); // Reset to default shading
 
-        glBegin(GL_TRIANGLES);
-        drawCurvedBand(R16, Y16, R17, Y17, segCos, segSin);
-        drawCurvedBand(R17, Y17, R18, Y18, segCos, segSin);
-        drawCurvedBand(R18, Y18, R19, Y19, segCos, segSin);
-        glEnd();
-    }
-
-    // Neck top cap
-    {
-        setSolidColorIfNeeded(0.9f, 0.7f, 0.6f);
-        glBegin(GL_TRIANGLES);
-        const int N = TORSO_SEGMENTS;
-        for (int i = 0; i < N; ++i) {
-            float cA = segCos[i], sA = segSin[i];
-            float cB = segCos[(i + 1) % N], sB = segSin[(i + 1) % N];
-            Vec3f center = { 0.0f, Y19, 0.0f };
-            Vec3f v1 = { R19 * cA, Y19, R19 * sA };
-            Vec3f v2 = { R19 * cB, Y19, R19 * sB };
-            glNormal3f(0, 1, 0);
-            glVertex3f(center.x, center.y, center.z);
-            glVertex3f(v1.x, v1.y, v1.z);
-            glVertex3f(v2.x, v2.y, v2.z);
-        }
-        glEnd();
-    }
-
-    glShadeModel(GL_FLAT); // back to your default
+    // Draw internal ball-and-socket joints (hidden inside torso and arms)
     drawInternalShoulderJoints();
+
+    drawMulanHead();
 }
 
-
 // Draw internal ball-and-socket joints (hidden inside torso and arms)
-// [MODIFY] Use skirt.bmp so the internal balls match torso material.
-// [FIX] Right-side bug: use a new local quadric instead of reusing an out-of-scope pointer.
-// [KEEP] Your clipping so only the inside hemisphere shows.
-
 void drawInternalShoulderJoints() {
-    const float shoulderOffsetTorso = R14 * 0.90f;
-    const float jointHeight = Y14;
+    const float shoulderOffsetTorso = R14 * 0.90f;  // Ball position lowered to R14 level
+    const float shoulderOffsetArm = R14 * 0.85f; // Socket position at lower torso connection
+    const float jointHeight = Y14; // Position lowered to R14 level for better integration
     const float ballRadius = 0.08f;
+    const float socketRadius = 0.10f;
 
-    const bool useTex = (gRenderMode == RM_TEXTURED) || g_TextureEnabled;
-    if (useTex) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Skirt]);   // skirt.bmp (same as torso)
-        Tex::enableObjectLinearST(0.75f, 0.75f, 0.75f);
-        glColor3f(1, 1, 1);
-    }
-    else {
-        Tex::unbind();
-        glDisable(GL_TEXTURE_2D);
-        glColor3f(0.2f, 0.4f, 0.8f);      // fallback solid
-    }
-
-    // --- Left Shoulder Ball (inside torso) ---
+    // --- Left Shoulder Ball (inside blue torso R14) ---
     glPushMatrix();
-    glTranslatef(-shoulderOffsetTorso, jointHeight, 0.1f);
+    glColor3f(0.2f, 0.4f, 0.8f); // Match blue torso color
+    glTranslatef(-shoulderOffsetTorso, jointHeight, 0.1f); // Positioned at blue torso boundary
 
+    // Clip ball to only show inside torso (hide external part)
     GLdouble clipPlaneLeft[] = { -1.0, 0.0, 0.0, -shoulderOffsetTorso + 0.1f };
     glClipPlane(GL_CLIP_PLANE0, clipPlaneLeft);
     glEnable(GL_CLIP_PLANE0);
 
-    if (GLUquadric* q = gluNewQuadric()) {
-        gluQuadricTexture(q, useTex ? GL_TRUE : GL_FALSE);
-        gluSphere(q, ballRadius, 16, 16);
-        gluDeleteQuadric(q);
+    // Draw ball hemisphere (only internal part visible)
+    GLUquadric* ballQuadric = gluNewQuadric();
+    if (ballQuadric) {
+        gluSphere(ballQuadric, ballRadius, 16, 16);
+        gluDeleteQuadric(ballQuadric);
     }
     glDisable(GL_CLIP_PLANE0);
     glPopMatrix();
 
-    // --- Right Shoulder Ball (inside torso) ---
+    // --- Right Shoulder Ball (inside blue torso R14) ---
     glPushMatrix();
-    glTranslatef(shoulderOffsetTorso, jointHeight, 0.1f);
+    glColor3f(0.2f, 0.4f, 0.8f); // Match blue torso color
+    glTranslatef(shoulderOffsetTorso, jointHeight, 0.1f); // Positioned at blue torso boundary
 
+    // Clip ball to only show inside torso
     GLdouble clipPlaneRight[] = { 1.0, 0.0, 0.0, -shoulderOffsetTorso + 0.1f };
     glClipPlane(GL_CLIP_PLANE0, clipPlaneRight);
     glEnable(GL_CLIP_PLANE0);
 
-    if (GLUquadric* q = gluNewQuadric()) {
-        gluQuadricTexture(q, useTex ? GL_TRUE : GL_FALSE);
-        gluSphere(q, ballRadius, 16, 16);
-        gluDeleteQuadric(q);
+    if (ballQuadric) {
+        ballQuadric = gluNewQuadric();
+        gluSphere(ballQuadric, ballRadius, 16, 16);
+        gluDeleteQuadric(ballQuadric);
     }
     glDisable(GL_CLIP_PLANE0);
     glPopMatrix();
-
-    if (useTex) {
-        Tex::disableObjectLinearST();
-        Tex::unbind();
-    }
 }
 
 // Original shoulder socket function (now unused)
@@ -3880,12 +3923,6 @@ void drawShoulderSocketsOLD() {
     glPopMatrix();
 }
 // --- Arm and Hand Drawing ---
-// [MODIFY] Texture handling:
-//   - When gConcreteHands is true, use silver.bmp (Tex::Silver) instead of untextured gray.
-//   - When using textures, enable object-linear texgen around just the arm meshes
-//     so sword/spear/shield mapping isn’t affected.
-// [KEEP] Your pose logic and hierarchy.
-
 void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     // Use animated kung fu poses if animation is active
     float leftShoulderPitch, rightShoulderPitch;
@@ -3922,6 +3959,27 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         g_HandJoints[0].position = leftWristBackup;
         g_HandJoints2[0].position = rightWristBackup;
     }
+    else if (gSwordAttackActive) {
+        // Use sword attack pose values
+        leftShoulderPitch = gCurrentSwordPose.leftShoulderPitch;
+        rightShoulderPitch = gCurrentSwordPose.rightShoulderPitch;
+        leftShoulderYaw = gCurrentSwordPose.leftShoulderYaw;
+        rightShoulderYaw = gCurrentSwordPose.rightShoulderYaw;
+        leftShoulderRoll = gCurrentSwordPose.leftShoulderRoll;
+        rightShoulderRoll = gCurrentSwordPose.rightShoulderRoll;
+        leftArmAngle += gCurrentSwordPose.leftArmAngle;
+        rightArmAngle += gCurrentSwordPose.rightArmAngle;
+        leftElbowBend = gCurrentSwordPose.leftElbowBend;
+        rightElbowBend = gCurrentSwordPose.rightElbowBend;
+        
+        // Enhanced warrior wrist control
+        leftWristPitch = gCurrentSwordPose.leftWristPitch;
+        rightWristPitch = gCurrentSwordPose.rightWristPitch;
+        
+        // Apply sword grip hand form
+        setHandForm(g_HandJoints, gCurrentSwordPose.swordHandForm);
+        setHandForm(g_HandJoints2, gCurrentSwordPose.swordHandForm);
+    }
     else if (gBoxingAnimActive || gInBoxingStance) {
         // Use boxing stance pose values
         leftShoulderPitch = gCurrentLeftShoulderPitch;
@@ -3930,14 +3988,14 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         rightShoulderYaw = gCurrentRightShoulderYaw;
         leftShoulderRoll = gCurrentLeftShoulderRoll;   // Use the 180-degree rotation
         rightShoulderRoll = gCurrentRightShoulderRoll; // Use the 180-degree rotation
-
+        
         // Boxing stance doesn't affect leg animation angles
         // leftArmAngle and rightArmAngle remain as they are
-
+        
         // Note: elbow bending is now handled in drawLowPolyArm via gCurrentLeftElbowBend/gCurrentRightElbowBend
         leftElbowBend = 0.0f; // Not used anymore, handled in arm drawing
         rightElbowBend = 0.0f; // Not used anymore, handled in arm drawing
-
+        
         // Make fists in boxing stance for realistic look
         if (g_FistHandJoints.size() == g_HandJoints.size()) {
             g_HandJoints = g_FistHandJoints;
@@ -3982,22 +4040,20 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
     }
 
     // Set material properties for concrete or skin
-    if (gRenderMode == RM_TEXTURED) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(gConcreteHands ? Tex::id[Tex::Silver] : Tex::id[Tex::Skin]);
-        glColor3f(1.0f, 1.0f, 1.0f); // Use white to show full texture color
+    if (gConcreteHands) {
+        glDisable(GL_TEXTURE_2D);
+        glColor3f(0.6f, 0.6f, 0.65f); // Concrete gray
     }
     else {
-        glDisable(GL_TEXTURE_2D);
-        if (gConcreteHands) {
-            // Concrete/Silver mode
-            if (gRenderMode == RM_TEXTURED) Tex::bind(Tex::id[Tex::Silver]);
-            if (gRenderMode != RM_TEXTURED) glColor3f(0.7f, 0.7f, 0.75f);
+        // Enable texturing if available
+        if (g_TextureEnabled && g_HandTexture != 0) {
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, g_HandTexture);
+            glColor3f(1.0f, 1.0f, 1.0f); // White to show texture clearly
         }
         else {
-            // Normal Skin mode
-            if (gRenderMode == RM_TEXTURED) Tex::bind(Tex::id[Tex::Skin]);
-            if (gRenderMode != RM_TEXTURED) glColor3f(0.85f, 0.64f, 0.52f);  // <<< Correct skin color
+            glDisable(GL_TEXTURE_2D);
+            glColor3f(0.85f, 0.64f, 0.52f); // Skin color
         }
     }
 
@@ -4012,6 +4068,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
         // Draw internal shoulder socket (connected to shoulder band R15)
         glPushMatrix();
+        glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
         glTranslatef(0.0f, 0.0f, -0.05f); // Socket position aligned with shoulder band connection
 
         // Clip socket to only show inside arm (hide external part)
@@ -4034,7 +4091,7 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             // Position relative to the elbow to attach to forearm
             Vec3 elbowPos = g_ArmJoints[3].position;
             glTranslatef(elbowPos.x * ARM_SCALE, elbowPos.y * ARM_SCALE, elbowPos.z * ARM_SCALE);
-            glTranslatef(-0.2f, 0.0f, 0.7f); // change position of shield
+			glTranslatef(-0.2f, 0.0f, 0.7f); // change position of shield
             glRotatef(-80.0f, 0, 1, 0);
             glRotatef(10.0f, 1, 0, 0);
             glScalef(0.4f, 0.4f, 0.4f);
@@ -4044,26 +4101,16 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
         glPushMatrix();
         if (gConcreteHands) {
-            if (gRenderMode == RM_TEXTURED) {
-                Tex::bind(Tex::id[Tex::Armor]); // <<< USE ARMOR TEXTURE
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            if (gRenderMode != RM_TEXTURED) glColor3f(0.75f, 0.75f, 0.8f); // Armor color
-            glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f);
+            // Draw concrete arm - more blocky/angular
+            glColor3f(0.55f, 0.55f, 0.6f); // Slightly different concrete shade for arms
+            glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f); // Slightly bigger for concrete look
             drawLowPolyArm(g_ArmJoints);
         }
         else {
-            if (gRenderMode == RM_TEXTURED) {
-                Tex::bind(Tex::id[Tex::Skin]);
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            if (gRenderMode != RM_TEXTURED) glColor3f(0.9f, 0.7f, 0.6f);
-            glScalef(ARM_SCALE, ARM_SCALE, ARM_SCALE);
+            glScalef(ARM_SCALE * 1.0f, ARM_SCALE * 1.0f, ARM_SCALE * 1.0f); // Use full scale to eliminate gaps
             drawLowPolyArm(g_ArmJoints);
         }
         glPopMatrix();
-
-        if (gRenderMode == RM_TEXTURED) Tex::unbind();
 
         // Draw left arm armor if armor is visible
         if (gArmorVisible) {
@@ -4100,6 +4147,14 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             glTranslatef(0.13f, 0.05f, 0.3f); // Move sword forward in front of hand (mirrored from right hand)
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward (same as right hand)
             glRotatef(-15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip (opposite direction)
+            
+            // Apply sword attack rotations if active
+            if (gSwordAttackActive) {
+                glRotatef(gSwordAttackRotationX, 1.0f, 0.0f, 0.0f);
+                glRotatef(gSwordAttackRotationY, 0.0f, 1.0f, 0.0f);
+                glRotatef(gSwordAttackRotationZ, 0.0f, 0.0f, 1.0f);
+            }
+            
             // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
             glTranslatef(0.0f, 1.0f, 0.0f); // Move sword up so hilt is in hand
             drawSword();
@@ -4116,10 +4171,10 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
         glRotatef(rightShoulderPitch, 1.0f, 0.0f, 0.0f);
         glRotatef(rightShoulderYaw, 0.0f, 1.0f, 0.0f);
         glRotatef(rightShoulderRoll, 0.0f, 0.0f, 1.0f);
-        glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
+
         // Draw internal shoulder socket (connected to shoulder band R15)
         glPushMatrix();
-        
+        glColor3f(0.85f, 0.64f, 0.52f); // Match arm color
         glTranslatef(0.0f, 0.0f, -0.05f); // Socket position aligned with shoulder band connection
 
         // Clip socket to only show inside arm (hide external part)  
@@ -4139,26 +4194,16 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
         glPushMatrix();
         if (gConcreteHands) {
-            if (gRenderMode == RM_TEXTURED) {
-                Tex::bind(Tex::id[Tex::Armor]); // <<< USE ARMOR TEXTURE
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            if (gRenderMode != RM_TEXTURED) glColor3f(0.75f, 0.75f, 0.8f); // Armor color
-            glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f);
+            // Draw concrete arm - more blocky/angular
+            glColor3f(0.55f, 0.55f, 0.6f); // Slightly different concrete shade for arms
+            glScalef(ARM_SCALE * 1.15f, ARM_SCALE * 1.15f, ARM_SCALE * 1.15f); // Slightly bigger for concrete look
             drawLowPolyArm(g_ArmJoints2);
         }
         else {
-            if (gRenderMode == RM_TEXTURED) {
-                Tex::bind(Tex::id[Tex::Skin]);
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            if (gRenderMode != RM_TEXTURED) glColor3f(0.9f, 0.7f, 0.6f);
-            glScalef(ARM_SCALE, ARM_SCALE, ARM_SCALE);
+            glScalef(ARM_SCALE * 1.0f, ARM_SCALE * 1.0f, ARM_SCALE * 1.0f); // Use full scale to eliminate gaps
             drawLowPolyArm(g_ArmJoints2);
         }
         glPopMatrix();
-
-        if (gRenderMode == RM_TEXTURED) Tex::unbind();
 
         // Draw right arm armor if armor is visible
         if (gArmorVisible) {
@@ -4208,6 +4253,14 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
             glTranslatef(-0.13f, 0.05f, 0.3f); // Move sword forward in front of hand (moved left by 0.3)
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f); // Orient sword downward
             glRotatef(15.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for natural grip
+            
+            // Apply sword attack rotations if active
+            if (gSwordAttackActive) {
+                glRotatef(gSwordAttackRotationX, 1.0f, 0.0f, 0.0f);
+                glRotatef(gSwordAttackRotationY, 0.0f, 1.0f, 0.0f);
+                glRotatef(gSwordAttackRotationZ, 0.0f, 0.0f, 1.0f);
+            }
+            
             // Move sword up so hand grips hilt (hilt is about 1.0 units below guard in sword model)
             glTranslatef(0.0f, 1.0f, 0.0f); // Move sword up so hilt is in hand
             drawSword();
@@ -4218,107 +4271,53 @@ void drawArmsAndHands(float leftArmAngle, float rightArmAngle) {
 
     // Disable texture after drawing hands
     glDisable(GL_TEXTURE_2D);
-    if (gRenderMode == RM_TEXTURED) {
-        Tex::unbind(); // Clean up texture state
-    }
 }
-
-// [MODIFY] Make neck local to the head pivot and texture with skin.bmp using object-linear texgen.
-// [REMOVE] World-space translate based on HEAD_CENTER_Y; caller now positions us (see drawBodyAndHead).
-// [ADD] Slight overlap into head to hide seam.
-
-void drawTexturedNeck() {
-    if (!g_headQuadric) {
-        g_headQuadric = gluNewQuadric();
-        gluQuadricNormals(g_headQuadric, GLU_SMOOTH);
-        gluQuadricTexture(g_headQuadric, GL_TRUE);
-    }
-
-    // Texture on/off
-    bool usingTexture = (gRenderMode == RM_TEXTURED) || g_TextureEnabled;
-    if (usingTexture) {
-        glEnable(GL_TEXTURE_2D);
-        Tex::bind(Tex::id[Tex::Skin]);           // skin.bmp
-        Tex::enableObjectLinearST(0.5f, 0.5f, 0.5f);
-        glColor3f(1, 1, 1);
-    }
-    else {
-        Tex::unbind();
-        glDisable(GL_TEXTURE_2D);
-        glColor3f(0.92f, 0.76f, 0.65f);
-    }
-
-    // [MODIFY] Neck is drawn just below the head’s local origin.
-    // Slightly intrude into the head to avoid any gap.
-    const float neckTopY = -HEAD_RADIUS * 0.68f; // just inside the head shell
-    const float neckHeight = 0.42f;                // extends down toward torso
-    const float neckTopR = 0.20f;
-    const float neckBottomR = 0.22f;
-
-    glPushMatrix();
-    glTranslatef(0.0f, neckTopY, 0.0f);
-    glRotatef(-90.0f, 1, 0, 0);         // GLU cylinders go along +Z → rotate so length goes along +Y
-    gluCylinder(g_headQuadric, neckTopR, neckBottomR, neckHeight, 24, 1);
-    glPopMatrix();
-
-    if (usingTexture) {
-        Tex::disableObjectLinearST();
-        Tex::unbind();
-    }
-}
-
-
 // --- Main Character Drawing ---
-// [MODIFY] Rewire head + neck so they’re positioned and textured consistently.
-//          Torso uses its own texture inside drawTorso(); head/neck use skin here.
-//          Nothing else in your animation flow changes.
-
-void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle)
-{
+void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle, float rightArmAngle) {
     glPushMatrix();
-
-    // [KEEP] Body placement to meet the leg tops (your comment about 6.0f is fine)
-    glTranslatef(0.0f, 6.0f - 0.05f, 0.0f);
-    glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
-
-    // [KEEP] Torso orientation (animated)
-    glRotatef(g_pose.torsoYaw, 0, 1, 0);
-    glRotatef(g_pose.torsoPitch, 1, 0, 0);
-    glRotatef(g_pose.torsoRoll, 0, 0, 1);
-
-    // [KEEP] Arms
-    drawArmsAndHands(leftArmAngle, rightArmAngle);
-
-    // [KEEP] Torso (note: your drawTorso() should bind Tex::Skirt internally)
-    drawTorso();
-
-    // ------------------------------
-    // [ADD] Head/Neck block
-    // ------------------------------
-    glPushMatrix();
-    {
-        // Move to the neck/head pivot (center of head). This matches your HEAD_CENTER_Y.
-        glTranslatef(0.0f, HEAD_CENTER_Y, 0.0f);
-
-        // Apply head orientation (relative to torso)
-        glRotatef(g_pose.headYaw, 0, 1, 0);
-        glRotatef(g_pose.headPitch, 1, 0, 0);
-        glRotatef(g_pose.headRoll, 0, 0, 1);
-
-        // Draw neck first so head sits on top seamlessly.
-        // IMPORTANT: drawTexturedNeck() should use SKIN texture inside itself.
-        // If your neck code expects torso-space Y values (≈1.6–2.0), you can
-        // leave it as-is; it's running under the same body matrix here.
-        drawTexturedNeck();     // [MOVE HERE] (was outside the body matrix before)
-
-        // Now draw the head (it’s modeled around local origin, centered vertically).
-        drawMulanHead();        // [MOVE HERE] (was called after popping matrices)
+    
+    // Apply enhanced warrior pose elements during sword attacks
+    if (gSwordAttackActive) {
+        // Apply character Y offset for dynamic warrior poses
+        glTranslatef(0.0f, gCurrentWarriorYOffset, 0.0f);
+        
+        // Modify leg angles for warrior stances
+        leftLegAngle += gCurrentWarriorLegLeft;
+        rightLegAngle += gCurrentWarriorLegRight;
     }
-    glPopMatrix();
+    
+    // Position body to connect seamlessly with scaled leg tops
+    // Leg mesh max Y is approximately 6.0f (8.2f * 0.7f scale from leg.cpp)
+    // Adjust slightly lower to create overlap and eliminate gap
+    glTranslatef(0.0f, 6.0f - 0.05f, 0.0f); // Slight overlap for seamless connection
+    glScalef(BODY_SCALE, BODY_SCALE, BODY_SCALE);
+    glRotatef(g_pose.torsoYaw, 0, 1, 0); glRotatef(g_pose.torsoPitch, 1, 0, 0); glRotatef(g_pose.torsoRoll, 0, 0, 1);
 
+    drawArmsAndHands(leftArmAngle, rightArmAngle); // Pass the arm angles down
+    drawTorso();
+    // drawSkirt(leftLegAngle, rightLegAngle); // Skirt removed
+
+    glDisable(GL_LIGHTING); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glPushMatrix();
+    glTranslatef(0, HEAD_CENTER_Y, 0);
+    
+    // Apply enhanced warrior head movements during sword attacks
+    if (gSwordAttackActive) {
+        glRotatef(g_pose.headYaw + gCurrentWarriorHeadYaw, 0, 1, 0); 
+        glRotatef(g_pose.headPitch + gCurrentWarriorHeadPitch, 1, 0, 0); 
+        glRotatef(g_pose.headRoll + gCurrentWarriorHeadRoll, 0, 0, 1);
+    } else {
+        glRotatef(g_pose.headYaw, 0, 1, 0); 
+        glRotatef(g_pose.headPitch, 1, 0, 0); 
+        glRotatef(g_pose.headRoll, 0, 0, 1);
+    }
+    
+    glTranslatef(0, -HEAD_CENTER_Y, 0);
+    // Face features are now drawn as part of drawMulanHead()
+    glPopMatrix();
+    glEnable(GL_LIGHTING);
     glPopMatrix();
 }
-
 
 // ===================================================================
 //
@@ -4329,28 +4328,26 @@ void drawBodyAndHead(float leftLegAngle, float rightLegAngle, float leftArmAngle
 void setupProjection() {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-
+    
     if (gViewportMode) {
         // Split viewport mode - show both orthographic and perspective
         int halfWidth = gWidth / 2;
-
+        
         // Left half - Orthographic
         glViewport(0, 0, halfWidth, gHeight);
         float orthoSize = gDist * 0.5f; // Scale orthographic view based on distance
         float aspect = (float)halfWidth / gHeight;
         glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
-    }
-    else {
+    } else {
         // Full viewport mode
         glViewport(0, 0, gWidth, gHeight);
-
+        
         if (gProjMode == PROJ_ORTHOGRAPHIC) {
             // Orthographic projection
             float orthoSize = gDist * 0.5f; // Scale based on camera distance
             float aspect = (float)gWidth / gHeight;
             glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
-        }
-        else {
+        } else {
             // Perspective projection
             gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
         }
@@ -4369,19 +4366,22 @@ void setupSplitViewportPerspective() {
 void renderScene() {
     // Render background first (if enabled)
     if (gBackgroundVisible) {
+        glPushMatrix();
+        glTranslatef(0.0f, -2.5f, 0.0f); // Lower the entire background by 3 units
         BackgroundRenderer::render();
+        glPopMatrix();
     }
-
+    
     // Common scene rendering logic for both orthographic and perspective modes
-
-    setRenderMode(gRenderMode);
+    
+    glPolygonMode(GL_FRONT_AND_BACK, gShowWireframe ? GL_LINE : GL_FILL);
 
     glEnable(GL_LIGHTING); glEnable(GL_LIGHT0); glEnable(GL_COLOR_MATERIAL);
-    float lightPos[] = { 20.f,20.f,30.f,1.f };
-    float ambientLight[] = { 0.4f,0.4f,0.4f,1.f };
+    float lightPos[] = { 20.f,20.f,30.f,1.f }; 
+    float ambientLight[] = { 0.4f,0.4f,0.4f,1.f }; 
     float diffuseLight[] = { 0.7f,0.7f,0.7f,1.f };
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight);
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos); 
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight); 
     glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
 
     float bodyBob = 0.0f;
@@ -4402,16 +4402,26 @@ void renderScene() {
     glRotatef(gCharacterYaw, 0.0f, 1.0f, 0.0f);
 
     float current_speed = gRunningAnim ? gRunSpeed : gWalkSpeed;
-    float max_hip_angle = gRunningAnim ? 20.0f : 10.0f;
-    float max_knee_angle = gRunningAnim ? 50.0f : 25.0f;
+    float max_hip_angle = gRunningAnim ? 25.0f : 15.0f;
+    float max_knee_angle = gRunningAnim ? 60.0f : 35.0f;
 
-    float left_leg_phase = gAnimTime * current_speed;
-    float hip_angle_L = gIsMoving ? (max_hip_angle * sinf(left_leg_phase)) : 0.0f;
-    float knee_angle_L = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(left_leg_phase))) : 0.0f;
+    // Use gWalkPhase for consistent leg animation
+    float animSpeed = keyShift ? 1.8f : 1.2f;
+    float walkPhase = gWalkPhase * animSpeed;
+    
+    // Left leg leads
+    float hip_angle_L = gIsMoving ? (max_hip_angle * sinf(walkPhase)) : 0.0f;
+    float knee_angle_L = gIsMoving ? (max_knee_angle * max(0.0f, sinf(walkPhase * 2.0f))) : 0.0f;
 
-    float right_leg_phase = gAnimTime * current_speed + PI;
-    float hip_angle_R = gIsMoving ? (max_hip_angle * sinf(right_leg_phase)) : 0.0f;
-    float knee_angle_R = gIsMoving ? (max_knee_angle * std::max(0.0f, sinf(right_leg_phase))) : 0.0f;
+    // Right leg follows (opposite phase)
+    float hip_angle_R = gIsMoving ? (max_hip_angle * sinf(walkPhase + PI)) : 0.0f;
+    float knee_angle_R = gIsMoving ? (max_knee_angle * max(0.0f, sinf((walkPhase + PI) * 2.0f))) : 0.0f;
+
+    // Apply warrior stance leg angles during sword attacks
+    if (gSwordAttackActive) {
+        hip_angle_L += gCurrentSwordPose.leftLegAngle;
+        hip_angle_R += gCurrentSwordPose.rightLegAngle;
+    }
 
     const float kneeY = 4.5f, kneeZ = 0.2f;
     const float hipY = 8.5f, hipZ = -0.2f;
@@ -4420,7 +4430,7 @@ void renderScene() {
     glPushMatrix();
     glTranslatef(-0.75f, -2.0f, 0.55f);
     animateLegVertices(hip_angle_L, knee_angle_L, false);
-    //glColor3f(0.9f, 0.7f, 0.6f); // Set skin color
+    glColor3f(0.9f, 0.7f, 0.6f); // Set skin color
     drawLeg();
     if (gArmorVisible) {
         glPushMatrix();
@@ -4441,7 +4451,7 @@ void renderScene() {
     glPushMatrix();
     glTranslatef(0.75f, -2.0f, 0.55f);
     animateLegVertices(hip_angle_R, knee_angle_R, true);
-    //glColor3f(0.9f, 0.7f, 0.6f); // Set skin color
+    glColor3f(0.9f, 0.7f, 0.6f); // Set skin color
     drawLeg();
     if (gArmorVisible) {
         glPushMatrix();
@@ -4486,24 +4496,24 @@ void renderScene() {
         glPopMatrix();
     }
 
-    drawBodyAndHead(0.0f, 0.0f, leftArmSwing, rightArmSwing);
+    drawBodyAndHead(hip_angle_L, hip_angle_R, leftArmSwing, rightArmSwing);
 
     glPopMatrix();
 }
 
 void display() {
-    glClearColor(0.6f, 0.3f, 0.7f, 1.0f);
+    glClearColor(0.5f, 0.7f, 0.9f, 1.0f); // Natural sky blue instead of purple
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_PROJECTION); glLoadIdentity();
-    setRenderMode(gRenderMode);
+    
     // Handle viewport and projection setup
     if (gViewportMode) {
         // Split viewport mode - render model twice with different projections
-
+        
         // Clear the entire screen first
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+        
         // Left viewport - Orthographic
         int halfWidth = gWidth / 2;
         glViewport(0, 0, halfWidth, gHeight);
@@ -4511,42 +4521,40 @@ void display() {
         float orthoSize = gDist * 0.5f;
         float aspect = (float)halfWidth / gHeight;
         glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
-
+        
         // Render scene in orthographic mode (left half)
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
         Vec3 eye; { eye.x = gTarget.x + gDist * cosf(gPitch) * sinf(gYaw); eye.y = gTarget.y + gDist * sinf(gPitch); eye.z = gTarget.z + gDist * cosf(gPitch) * cosf(gYaw); }
         gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
-
+        
         // Render the scene for orthographic view
         renderScene();
-
+        
         // Right viewport - Perspective
         glViewport(halfWidth, 0, halfWidth, gHeight);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         gluPerspective(45.0, (double)halfWidth / gHeight, 0.1, 100.0);
-
+        
         // Render scene in perspective mode (right half)
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
         gluLookAt(eye.x, eye.y, eye.z, gTarget.x, gTarget.y, gTarget.z, 0.0, 1.0, 0.0);
-
+        
         // Render the scene for perspective view
         renderScene();
-
+        
         return; // Skip the single viewport rendering below
-
-    }
-    else {
+        
+    } else {
         // Single viewport mode
         glViewport(0, 0, gWidth, gHeight);
-
+        
         if (gProjMode == PROJ_ORTHOGRAPHIC) {
             // Orthographic projection
             float orthoSize = gDist * 0.5f;
             float aspect = (float)gWidth / gHeight;
             glOrtho(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, 0.1f, 100.0f);
-        }
-        else {
+        } else {
             // Perspective projection (default)
             gluPerspective(45.0, (double)gWidth / gHeight, 0.1, 100.0);
         }
@@ -4573,6 +4581,13 @@ void display() {
 // ===================================================================
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Allocate console for debug output
+    AllocConsole();
+    freopen_s((FILE**)stdout, "CONOUT$", "w", stdout);
+    freopen_s((FILE**)stderr, "CONOUT$", "w", stderr);
+    
+    printf("Starting application...\n");
+    
     WNDCLASSEXA wc{}; wc.cbSize = sizeof(WNDCLASSEXA); wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC; wc.lpfnWndProc = WindowProcedure; wc.hInstance = GetModuleHandle(NULL); wc.lpszClassName = WINDOW_TITLE;
     if (!RegisterClassExA(&wc))return 0;
     HWND hWnd = CreateWindowA(WINDOW_TITLE, WINDOW_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, gWidth, gHeight, NULL, NULL, wc.hInstance, NULL);
@@ -4584,6 +4599,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     glEnable(GL_DEPTH_TEST); glEnable(GL_NORMALIZE);
     initializeCharacterParts();
+    
+    // Initialize background texture system with error checking
+    printf("Initializing OpenGL extensions...\n");
+    
+    // Check if OpenGL is properly initialized
+    GLenum glError = glGetError();
+    if (glError != GL_NO_ERROR) {
+        printf("OpenGL error before background init: %d\n", glError);
+    }
+    
+    BackgroundRenderer::init();
 
     // Display configuration controls
     printf("=== CONFIGURATION CONTROLS ===\n");
@@ -4618,7 +4644,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Cleanup background system
     BackgroundRenderer::cleanup();
-
+    
     wglMakeCurrent(NULL, NULL); wglDeleteContext(rc); ReleaseDC(hWnd, hdc); UnregisterClassA(WINDOW_TITLE, wc.hInstance);
     return 0;
 }
@@ -4634,8 +4660,9 @@ void updateCharacter(float dt) {
         float angleRad = gCharacterYaw * PI / 180.0f;
         gCharacterPos.x -= sin(angleRad) * gMoveSpeed * dt;
         gCharacterPos.z -= cos(angleRad) * gMoveSpeed * dt;
-        float phaseSpeed = keyShift ? 10.0f : 5.0f;
-        gWalkPhase += gMoveSpeed * dt * phaseSpeed / (keyShift ? 2.5f : 2.0f);
+        // Fixed walking phase - more natural rhythm
+        float phaseSpeed = keyShift ? 8.0f : 4.0f;
+        gWalkPhase += fabsf(gMoveSpeed) * dt * phaseSpeed;
     }
 
     // Update animations
@@ -4644,7 +4671,8 @@ void updateCharacter(float dt) {
     updateBoxingStance(dt);     // Add boxing stance animation updates
     updateJumpAnimation(dt);    // Add jump animation updates
     updateDance();              // Add K-pop dance animation updates
-
+    updateSwordAttackAnimation(dt); // Add sword attack animation updates
+    
     // Update background animation
     BackgroundRenderer::update(dt);
 }
@@ -4660,35 +4688,30 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)PostQuitMessage(0);
         else if (wParam == 'R') { gYaw = 0.2f; gPitch = 0.1f; gDist = 15.0f; gTarget = { 0.0f,3.5f,0.0f }; gCharacterPos = { 0,0,0 }; gCharacterYaw = 0; }
-        else if (wParam == '1' || wParam == VK_NUMPAD1) {   // Wireframe
-            setRenderMode(RM_WIREFRAME);
-            InvalidateRect(hWnd, NULL, FALSE);
-        }
-        else if (wParam == '2' || wParam == VK_NUMPAD2) {   // Solid (glColor)
-            setRenderMode(RM_SOLID);
-            InvalidateRect(hWnd, NULL, FALSE);
-        }
-        else if (wParam == '3' || wParam == VK_NUMPAD3) {   // Textured
-            setRenderMode(RM_TEXTURED);
-            InvalidateRect(hWnd, NULL, FALSE);
-        }
-
+        else if (wParam == '1') { gShowWireframe = !gShowWireframe; }
+        else if (wParam == '2') { g_TextureEnabled = !g_TextureEnabled; } // Toggle hand texture
+        else if (wParam == '3') { gConcreteHands = !gConcreteHands; } // Toggle concrete hands
         else if (wParam == 'F') { toggleFistAnimation(); } // Toggle fist animation
         else if (wParam == 'G') { startDance(); } // K-pop dance animation
         else if (wParam == 'B') { toggleBoxingStance(); } // Toggle boxing stance (guard position)
         else if (wParam == 'H') { gShowJointVisuals = !gShowJointVisuals; } // Toggle joint visualization
         else if (wParam == 'X') { gSwordVisible = !gSwordVisible; } // Toggle sword visibility
+        else if (wParam == VK_OEM_2) { // '/' key for sword attack
+            if (gSwordVisible && !gSwordAttackActive) {
+                startSwordAttack(rand() % 3); // Random attack type: 0=slash, 1=thrust, 2=combo
+            }
+        }
         else if (wParam == 'V') { gSpearVisible = !gSpearVisible; }
         else if (wParam == 'C') { gShieldVisible = !gShieldVisible; }
         else if (wParam == 'Z') { gWeaponInRightHand = !gWeaponInRightHand; } // Switches ALL weapons
-        else if (wParam == 'M') { gArmorVisible = !gArmorVisible; gConcreteHands = gArmorVisible;}
+        else if (wParam == 'M') { gArmorVisible = !gArmorVisible; }
         // Helmet dome rotation controls
-        //else if (wParam == '1') { g_helmetDomeRotationX += 5.0f; }
-        //else if (wParam == '2') { g_helmetDomeRotationX -= 5.0f; }
+        else if (wParam == '1') { g_helmetDomeRotationX += 5.0f; }
+        else if (wParam == '2') { g_helmetDomeRotationX -= 5.0f; }
         else if (wParam == '3') { g_helmetDomeRotationY += 5.0f; }
         else if (wParam == '4') { g_helmetDomeRotationY -= 5.0f; }
-        //else if (wParam == '5') { g_helmetDomeRotationZ += 5.0f; }
-        //else if (wParam == '6') { g_helmetDomeRotationZ -= 5.0f; }
+        else if (wParam == '5') { g_helmetDomeRotationZ += 5.0f; }
+        else if (wParam == '6') { g_helmetDomeRotationZ -= 5.0f; }
         else if (wParam == 'K') { gBackgroundVisible = !gBackgroundVisible; } // Toggle background visibility
         // Projection and Viewport Controls
         else if (wParam == 'O') { gProjMode = PROJ_ORTHOGRAPHIC; } // Orthographic projection
@@ -4702,6 +4725,7 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         else if (wParam == 'W') keyW = true; else if (wParam == 'S') keyS = true;
         else if (wParam == 'A') keyA = true; else if (wParam == 'D') keyD = true;
         else if (wParam == 'G') keyG = true;
+        else if (wParam == VK_OEM_2) keySlash = true; // '/' key
         else if (wParam == VK_UP) keyUp = true; else if (wParam == VK_DOWN) keydown = true;
         else if (wParam == VK_LEFT) keyLeft = true; else if (wParam == VK_RIGHT) keyRight = true;
         else if (wParam == VK_SHIFT) keyShift = true;
@@ -4710,11 +4734,11 @@ LRESULT WINAPI WindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         if (wParam == 'W') keyW = false; else if (wParam == 'S') keyS = false;
         else if (wParam == 'A') keyA = false; else if (wParam == 'D') keyD = false;
         else if (wParam == 'G') keyG = false;
+        else if (wParam == VK_OEM_2) keySlash = false; // '/' key
         else if (wParam == VK_UP) keyUp = false; else if (wParam == VK_DOWN) keydown = false;
         else if (wParam == VK_LEFT) keyLeft = false; else if (wParam == VK_RIGHT) keyRight = false;
         else if (wParam == VK_SHIFT) keyShift = false;
         return 0;
-
     default: return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 }

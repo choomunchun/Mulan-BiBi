@@ -53,7 +53,7 @@ void setMaterial(const Material& mat) {
 // --- Forward Declarations ---
 LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 void initGL();
-void renderScene();
+// void renderScene();
 
 // --- Helper and Drawing Functions (Unchanged from "Mulan" version) ---
 
@@ -207,6 +207,7 @@ void drawTassel() {
 
 // --- Main Rendering and Initialization Functions ---
 
+/*
 void renderScene() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
@@ -241,6 +242,7 @@ void renderScene() {
 
     SwapBuffers(ghDC);
 }
+*/
 
 void initGL() {
     // CHANGED: Neutral dark gray background
@@ -265,8 +267,8 @@ void initGL() {
     glShadeModel(GL_SMOOTH);
 }
 
-// --- Win32 Application Structure (Unchanged) ---
-
+// --- Win32 Application Structure (Commented out to avoid conflicts with main.cpp) ---
+/*
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     WNDCLASS wc; MSG msg; BOOL quit = FALSE;
     wc.style = CS_OWNDC; wc.lpfnWndProc = WindowProc; wc.cbClsExtra = 0; wc.cbWndExtra = 0;
@@ -326,3 +328,4 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return DefWindowProc(hWnd, uMsg, wParam, lParam);
     }
 }
+*/
